@@ -1,0 +1,9 @@
+(defsystem "db"
+  :author "Robert Burnett"
+  :license "Apache-2.0"
+  :depends-on ("mcclim" "cl-dbi" "dbi-sqlite3" "quicklisp")
+  :components ((:file "main"))
+  :build-operation program-op
+  :build-pathname "main"
+  :entry-point "db/main:main"
+  )

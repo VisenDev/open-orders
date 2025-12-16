@@ -1,0 +1,10 @@
+for file in "*.lisp"; do emacs -batch $file -l "~/.emacs.d/init.el" -f mark-whole-buffer -f delete-trailing-whitespace -f untabify -f whitespace-cleanup -f save-buffer -kill; done;
+for file in "*.lisp"; do emacs -batch $file -l "~/.emacs" -f mark-whole-buffer -f delete-trailing-whitespace -f untabify -f whitespace-cleanup -f save-buffer -kill; done;
+rm -r *.fas
+rm -r *.fasl
+rm -r *~
+rm -r *.bak
+rm clogframe/builder
+rm clogframe/clogframe
+rm clogframe/snake
+rm builder

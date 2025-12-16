@@ -1,0 +1,6 @@
+(unless (find-package 'asdf)
+  (format t ";; Loading asdf...~%")
+  (load #p"vendored/asdf/build/asdf.lisp"))
+(asdf:initialize-source-registry `(:source-registry (:tree ,(uiop:getcwd)) :inherit-configuration))
+(asdf:make "db" :force t)
+(uiop:quit)
