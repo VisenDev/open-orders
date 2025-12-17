@@ -28,7 +28,8 @@
 (defparameter *wisteria*  "#9e95c7")
 
 (defclass app ()
-  ((menu-tab :initform :home :accessor menu-tab)))
+  ((menu-tab :initform :home :accessor menu-tab)
+   (database :accessor database :initarg :database)))
 
 (defun apply-header-bar-styling (obj)
   (setf (display obj) :flex)
@@ -51,6 +52,22 @@
   (setf (style obj "padding") "5px")
   )
 
+(defun database-create-tables (db force &aux stmt)
+
+  (handler-case
+      (progn
+        (setf stmt (dbi:prepare db "create table customers(id integer primary key autoincrement);"))
+        (dbi:execute stmt)
+        )
+    (error ()
+      (when force
+        (setf stmt (dbi:prepare db "drop table customers;"))
+        (dbi:execute stmt)
+        (database-create-tables db nil))
+      (unless force
+        (error "Table customers already exists :("))))
+  )
+
 (defun on-new-window (body)
   (setf (title (html-document body)) "CL-DB")
   (setf (style body "margin") "0px")
@@ -58,30 +75,37 @@
   (setf (font-css body) "normal 16px monospace")
   (setf (background-color body) *bg*)
 
-  (let* ((app (make-instance 'app))
+  (let* ((app (make-instance 'app :database (dbi:connect :sqlite3 :database-name ".main.db")))
          (menu (create-div body))
-         (contents (create-div body :content "Tab: (menu-tab app)" :style "padding:10px;"))
+         (contents (create-div body :style "padding:10px;"))
          (home-tab (create-section menu :h2 :content "home"))
          (open-orders-tab (create-section menu :h2 :content "open-orders"))
          )
 
     (setf (color contents) *fg*)
     (apply-header-bar-styling menu)
-    (mapcar (lambda (obj)
-              (set-on-click obj (lambda (obj)
-                                  (setf (menu-tab app) (html-id obj)))))
-            (list home-tab open-orders-tab))
+    
+    (set-on-click home-tab (lambda (obj) (setf (menu-tab app) (html-id obj))))
+    (set-on-click open-orders-tab (lambda (obj) (setf (menu-tab app) (html-id obj))))
+    
     (apply-clickable-styling home-tab)
     (apply-clickable-styling open-orders-tab)
 
     (link-slot-to-element app menu-tab contents)
 
+    ;;Refresh menu tab 
+    (setf (menu-tab app) :foo)
     
+    (restart-case 
+        (database-create-tables (database app) nil)
+      (ignore () nil)
+      (delete-table-and-recreate ()
+        "Warning, this may delete data"
+        (database-create-tables (database app) t)))
+    (dbi:disconnect (database app))
     ))
 
 (defun main()
   (initialize #'on-new-window)
   (open-browser)
   )
-
-(main)

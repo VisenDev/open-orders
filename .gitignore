@@ -1,3 +1,4 @@
 AppDir
 *.AppImage
 main
+cl-db
