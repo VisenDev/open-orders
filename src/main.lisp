@@ -1,4 +1,4 @@
-#-clog (asdf:load-system :clog)
+(unless (find-package :clog) (asdf:load-system :clog))
 (defpackage :cl-db/main
   (:use :cl :clog)
   (:export #:main))
@@ -27,6 +27,9 @@
 (defparameter *niagara*   "#96a6c8")
 (defparameter *wisteria*  "#9e95c7")
 
+(defclass app ()
+  ((menu-tab :initform :home :accessor menu-tab)))
+
 (defun apply-header-bar-styling (obj)
   (setf (display obj) :flex)
   (setf (align-items obj) :center)
@@ -43,8 +46,7 @@
 (defun apply-clickable-styling (obj)
   (setf (cursor obj) :pointer)
   (setf (color obj) *yellow*)
-  (set-on-pointer-enter obj (lambda (obj) (setf (color obj) *quartz*)))
-;;  (set-on-mouse-down obj (lambda (obj) (setf (color obj) *white*)))
+  (set-on-pointer-enter obj (lambda (obj) (setf (color obj) *white*)))
   (set-on-pointer-leave obj (lambda (obj) (setf (color obj) *yellow*)))
   (setf (style obj "padding") "5px")
   )
@@ -56,28 +58,30 @@
   (setf (font-css body) "normal 16px monospace")
   (setf (background-color body) *bg*)
 
-  (let* ((menu (create-div body))
-         (contents (create-div body))
+  (let* ((app (make-instance 'app))
+         (menu (create-div body))
+         (contents (create-div body :content "Tab: (menu-tab app)" :style "padding:10px;"))
          (home-tab (create-section menu :h2 :content "home"))
          (open-orders-tab (create-section menu :h2 :content "open-orders"))
          )
 
+    (setf (color contents) *fg*)
     (apply-header-bar-styling menu)
+    (mapcar (lambda (obj)
+              (set-on-click obj (lambda (obj)
+                                  (setf (menu-tab app) (html-id obj)))))
+            (list home-tab open-orders-tab))
     (apply-clickable-styling home-tab)
     (apply-clickable-styling open-orders-tab)
-    
-    
-    ;;    (setf (border menu) :solid)
-    ;; (set-on-pointer-enter home-tab #'highlight)
-    ;; (set-on-pointer-leave home-tab #'normal)
-    ;; (set-on-pointer-enter open-orders-tab #'highlight)
-    ;; (set-on-pointer-leave open-orders-tab #'normal)
 
-    (create-section contents :p :content "hello there")
+    (link-slot-to-element app menu-tab contents)
+
+    
     ))
-  
+
 (defun main()
   (initialize #'on-new-window)
-  (open-browser))
+  (open-browser)
+  )
 
 (main)
