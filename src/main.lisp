@@ -44,7 +44,8 @@
   clickable-hover
   header-fg
   header-bg
-  font
+  font-family
+  font-size
   corners)
 
 (defparameter *theme-gruber-darker*
@@ -55,15 +56,17 @@
                  :clickable-hover "#ffffff"
                  :header-bg "#282828"
                  :header-fg "#f4f4ff"
-                 :font "normal 16px monospace"
-                 :corners "10px"))
+                 :font-family "monospace"
+                 :font-size 16
+                 :corners "20px"))
 
 (defclass app ()
   ((menu-tab :initform :home :accessor menu-tab)
-   (database :accessor database :initarg :database)
+   ;; (database :accessor database :initarg :database)
    (theme :initarg :theme :initform *theme-gruber-darker* :accessor theme)))
 
-(defun apply-header-bar-styling (app obj)
+(defun apply-header-bar-styling (obj &aux app)
+  (setf app (connection-data-item obj 'app))
   (setf (display obj) :flex)
   (setf (align-items obj) :center)
   ;; (setf (justify-content obj) :space-between)
@@ -71,17 +74,32 @@
   (setf (background-color obj) (header-bg (theme app)))
   (setf (color obj) (header-fg (theme app)))
   (setf (style obj "box-shadow") "0 2px 8px rgba(0, 0, 0, 0.15)")
-  (setf (style obj "padding") 0)
-  (setf (style obj "margin") 0)
+  (setf (style obj "padding") "10px")
+  (setf (style obj "margin") "10px")
   (setf (style obj "border-radius") "10px")
-  (setf (style obj "padding-left") "10px"))
+  (setf (style obj "padding-left") "10px")
 
-(defun apply-clickable-styling (app obj)
-  (setf (cursor obj) :pointer)
-  (setf (color obj) (clickable-normal (theme app)))
-  (set-on-pointer-enter obj (lambda (obj) (setf (color obj) (clickable-hover (theme app)))))
-  (set-on-pointer-leave obj (lambda (obj) (setf (color obj) (clickable-normal (theme app)))))
-  (setf (style obj "padding") "5px")
+  )
+
+(defun apply-clickable-styling (obj)
+  (with-slots ((hover clickable-hover)
+               (normal clickable-normal)
+               (bg header-bg)
+               font-family
+               corners)
+      (theme (connection-data-item obj 'app))
+    (setf (cursor obj) :pointer)
+    (setf (color obj) normal)
+    (setf (background-color obj) bg)
+    (set-on-pointer-enter obj (lambda (obj)
+                                (setf (color obj) hover)))
+    (set-on-pointer-leave obj (lambda (obj)
+                                (setf (color obj) normal)))
+    (setf (style obj "padding") "5px")
+    (setf (style obj "margin") "5px")
+    (setf (style obj "border-radius") corners)
+    (setf (border obj) :none) 
+    (setf (font-css obj) (format nil "normal 32px ~a" font-family)))
   )
 
 ;;(defun database-create-tables (body db &optional second-try &aux stmt)
@@ -98,43 +116,40 @@
 ;;  )
 
 
-(defun open-orders-page (body &aux my/app)
-  (setf my/app (make-instance 'app))
-  
-  (setf (title (html-document body)) "CL-DB")
+(defun open-orders-page (body)
+
+  (setf (connection-data-item body 'app) (make-instance 'app))
+  (setf (title (html-document body)) "Open Orders")
   (setf (style body "margin") "0px")
   (setf (style body "padding") "0px")
-  (setf (font-css body) (font (theme my/app)))
-  (setf (background-color body) (bg (theme my/app)))
+  (setf (font-css body) (format nil "normal ~apx ~a" (font-size *theme-gruber-darker*) (font-family *theme-gruber-darker*)))
+  (setf (background-color body) (bg *theme-gruber-darker*))
 
   (let* ((menu (create-div body))
          (contents (create-div body :style "padding:10px;"))
-         (home-tab (create-section menu :h2 :content "home"))
-         (open-orders-tab (create-section menu :h2 :content "open-orders"))
+         (home-tab (create-button menu :content "home"))
+         (open-orders-tab (create-button menu :content "open-orders"))
          )
-    (setf (color contents) (fg (theme my/app)))
-    (apply-header-bar-styling my/app menu)
     
-    (apply-clickable-styling my/app (clog:create-a body :content "Click Me!" :link "/page2" ))
+    (setf (color contents) (fg (theme (connection-data-item body 'app))))
+    (apply-header-bar-styling menu)
     
-    (set-on-click home-tab (lambda (obj) (setf (menu-tab my/app) (html-id obj))))
-    (set-on-click open-orders-tab (lambda (obj) (setf (menu-tab my/app) (html-id obj))))
+    ;; (apply-clickable-styling my/app (clog:create-a body :content "Click Me!" :link "/page2" ))
     
-    (apply-clickable-styling my/app home-tab)
-    (apply-clickable-styling my/app open-orders-tab)
+    ;; (set-on-click home-tab (lambda (obj) (setf (menu-tab my/app) (html-id obj))))
+    ;; (set-on-click open-orders-tab (lambda (obj) (setf (menu-tab my/app) (html-id obj))))
+    
+    (apply-clickable-styling home-tab)
+    (apply-clickable-styling open-orders-tab)
 
-    (link-slot-to-element my/app menu-tab contents)
+    ;; (link-slot-to-element my/app menu-tab contents)
 
     ;;Refresh menu tab 
-    (setf (menu-tab my/app) :foo)
+    ;; (setf (menu-tab my/app) :foo)
     ))
 
-(defun page2 (body)
-  (create-section body :h1 :content "Hello from page2")
-  )
-
 (defun main()
-  (initialize #'on-new-window)
-  (set-on-new-window 'page2 :path "/page2")
+  (initialize #'open-orders-page)
+  (open-browser)
   (open-browser)
   )
