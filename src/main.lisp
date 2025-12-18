@@ -52,21 +52,20 @@
   (setf (style obj "padding") "5px")
   )
 
-(defun database-create-tables (db force &aux stmt)
 
-  (handler-case
-      (progn
-        (setf stmt (dbi:prepare db "create table customers(id integer primary key autoincrement);"))
-        (dbi:execute stmt)
-        )
-    (error ()
-      (when force
-        (setf stmt (dbi:prepare db "drop table customers;"))
-        (dbi:execute stmt)
-        (database-create-tables db nil))
-      (unless force
-        (error "Table customers already exists :("))))
-  )
+
+;;(defun database-create-tables (body db &optional second-try &aux stmt)
+;;  (handler-case
+;;      (progn
+;;        (setf stmt (dbi:prepare db "create table customers(id integer primary key autoincrement);"))
+;;        (dbi:execute stmt)
+;;        )
+;;    (sqlite-error ()
+;;      (progn (clog:execute ))
+;;      (setf stmt (dbi:prepare db "drop table customers;"))
+;;      (dbi:execute stmt)
+;;      ))
+;;  )
 
 (defun on-new-window (body)
   (setf (title (html-document body)) "CL-DB")
@@ -75,15 +74,16 @@
   (setf (font-css body) "normal 16px monospace")
   (setf (background-color body) *bg*)
 
-  (let* ((app (make-instance 'app :database (dbi:connect :sqlite3 :database-name ".main.db")))
+  (let* ((app (make-instance 'app))
          (menu (create-div body))
          (contents (create-div body :style "padding:10px;"))
          (home-tab (create-section menu :h2 :content "home"))
          (open-orders-tab (create-section menu :h2 :content "open-orders"))
          )
-
     (setf (color contents) *fg*)
     (apply-header-bar-styling menu)
+    
+    (apply-clickable-styling (clog:create-a body :content "Click Me!" :link "/page2" ))
     
     (set-on-click home-tab (lambda (obj) (setf (menu-tab app) (html-id obj))))
     (set-on-click open-orders-tab (lambda (obj) (setf (menu-tab app) (html-id obj))))
@@ -95,17 +95,14 @@
 
     ;;Refresh menu tab 
     (setf (menu-tab app) :foo)
-    
-    (restart-case 
-        (database-create-tables (database app) nil)
-      (ignore () nil)
-      (delete-table-and-recreate ()
-        "Warning, this may delete data"
-        (database-create-tables (database app) t)))
-    (dbi:disconnect (database app))
     ))
+
+(defun page2 (body)
+  (create-section body :h1 :content "Hello from page2")
+  )
 
 (defun main()
   (initialize #'on-new-window)
+  (set-on-new-window 'page2 :path "/page2")
   (open-browser)
   )
