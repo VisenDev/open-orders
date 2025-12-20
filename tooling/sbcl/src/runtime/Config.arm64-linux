@@ -1,0 +1,41 @@
+# -*- makefile -*- for the C-level run-time support for SBCL
+
+# This software is part of the SBCL system. See the README file for
+# more information.
+#
+# This software is derived from the CMU CL system, which was
+# written at Carnegie Mellon University and released into the
+# public domain. The software is in the public domain and is
+# provided with absolutely no warranty. See the COPYING and CREDITS
+# files for more information.
+
+ASSEM_SRC = arm64-assem.S
+ARCH_SRC = arm64-arch.c
+
+OS_SRC = linux-os.c linux-mman.c arm64-linux-os.c
+OS_LIBS = -ldl -Wl,-no-as-needed
+
+ifdef LISP_FEATURE_IMMOBILE_SPACE
+  GC_SRC = fullcgc.c gencgc.c traceroot.c immobile-space.c
+else ifdef LISP_FEATURE_MARK_REGION_GC
+# The parallelized mark-region collector can perform a full GC,
+# but can't use fullcgc to perform heap->arena pointer detection.
+  GC_SRC = fullcgc.c pmrgc.c traceroot.c mark-region.c incremental-compact.c gc-thread-pool.c
+else
+  GC_SRC = fullcgc.c gencgc.c traceroot.c
+endif
+
+ifdef LISP_FEATURE_SB_THREAD
+  OS_LIBS += -lpthread
+endif
+ifdef LISP_FEATURE_SB_CORE_COMPRESSION
+  OS_LIBS += -lzstd
+endif
+CFLAGS += -std=gnu99
+
+LINKFLAGS += -Wl,--export-dynamic
+
+ifdef LISP_FEATURE_SB_LINKABLE_RUNTIME
+  LIBSBCL = sbcl.o
+  USE_LIBSBCL = sbcl.o
+endif

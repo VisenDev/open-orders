@@ -1,4 +1,3 @@
 
-
 sbcl:
-	sbcl --eval '(progn (asdf:initialize-source-registry `(:source-registry (:tree ,(uiop:getcwd)) :inherit-configuration)) (asdf:load-system "cl-db") (asdf:make "cl-db/executable"))'
+	sbcl --no-userinit --no-sysinit --eval '(load "init.lisp")' --eval '(sb-ext:save-lisp-and-die "main" :executable t :toplevel `cl-db/main:main)'

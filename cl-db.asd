@@ -5,9 +5,9 @@
   :components ((:module "src"
                 :components ((:file "main")))))
 
-(defsystem "cl-db/executable"
-  :build-operation program-op
-  :build-pathname "cl-db"
-  :entry-point "cl-db/main:main"
-  :depends-on ("cl-db")
-  )
+;;(defsystem "cl-db/executable"
+;;  :build-operation program-op
+;;  :build-pathname "cl-db"
+;;  :entry-point "cl-db/main:main"
+;;  :depends-on ("cl-db")
+;;  )

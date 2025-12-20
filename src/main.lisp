@@ -151,5 +151,4 @@
 (defun main()
   (initialize #'open-orders-page)
   (open-browser)
-  (open-browser)
   )
