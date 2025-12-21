@@ -1,5 +1,3 @@
-(declaim (optimize (speed 3) (safety 3) (debug 3)))
-
 (unless (find-package "asdf")
   (load "tooling/asdf/build/asdf.lisp")
   )

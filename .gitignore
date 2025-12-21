@@ -3,4 +3,6 @@ AppDir
 main
 cl-db
 .qlot/
-*fasl
+**fasl
+tooling/sbcl/build
+tooling/sbcl/clean
