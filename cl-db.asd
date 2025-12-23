@@ -1,7 +1,7 @@
 (defsystem "cl-db" 
   :author "Robert Burnett"
   :license "Apache-2.0"
-  :depends-on ("clog")
+  :depends-on ("clog" "sxql" "dbd-sqlite3")
   :components ((:module "src"
                 :components ((:file "main")))))
 

@@ -6,3 +6,5 @@ cl-db
 **fasl
 tooling/sbcl/build
 tooling/sbcl/clean
+*.sqlite
+*.sqlite3

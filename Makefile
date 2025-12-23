@@ -34,7 +34,8 @@ endif
 
 
 main: $(SBCL)
-	$(SBCL) --no-userinit --no-sysinit --eval '(load "init.lisp")' --eval '(sb-ext:save-lisp-and-die "main" :executable t :toplevel `cl-db/main:main)'
+	$(SBCL) --no-userinit --no-sysinit --eval '(load "init.lisp")' \
+	--eval '(sb-ext:save-lisp-and-die "main" :executable t :toplevel `cl-db.main:main)'
 
 clean:
 	if [ -e **fasl ]; then rm **fasl; fi
