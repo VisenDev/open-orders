@@ -39,27 +39,13 @@
 
                              ))
           (varname (intern (format nil "*SQL-CREATE-TABLE-~a*" (symbol-name name))))
-          (classname (intern (format nil "~a-ROW" (symbol-name name))))
-          (funname (intern (format nil "CREATE-~a-INPUT-FORM" (symbol-name name))))
-          (funbody (loop :for field :in fields
-                         :collect `(let* ((div (create-div form :style "flex-direction:column;"))
-                                          (title (create-p div :content ,(symbol-name (first field))))
-                                          (obj (create-form-element div :text)))
-                                     (declare (ignore title))
-                                     (link-slot-to-form-element
-                                      table-instance ,(first field)
-                                      obj
-                                      :transform #'string-upcase)))))
+          (classname (intern (format nil "~a-ROW" (symbol-name name)))))
       `(progn
          (push ,(list 'quote name) *tables*)
          (defclass ,classname ()
            ,clos-fields)
          (defparameter ,varname (sxql:create-table ,name ,fields))
-         (defun ,funname (clog-obj table-instance)
-           (let* ((form (create-form clog-obj)))
-             ,@funbody))
-         ))
-    ))
+         ))))
 
 
 ;;;
@@ -133,9 +119,18 @@
 (defun text-with-tooltip (text tooltip)
   (format nil "<div title=\"~a\">~a</div>" tooltip text))
 
+(deftype app-page () '(member :open-orders :customers))
+(defclass app ()
+  ((page :accessor page :initform :open-orders :type app-page)))
+
 (defun on-new-window (body)
+  (setf (connection-data-item body "app") (make-instance 'app))
   (let* ((font-size "11pt")
+         (pressed (rgb 220 220 220))
+         (hover (rgb 240 230 230))
          (sb (create-style-block body)))
+    (add-style sb :class "pressed" `(("background-color" ,pressed)
+                                     ("text-shadow" ("0.5px" "0" "0" "black"))))
     (add-style sb :element "body" `(("color" :black)
                                     ("background-color" :white)
                                     ("border" :none)
@@ -151,7 +146,7 @@
                                             ("border-width" "1px")
                                             ("background" :white)
                                             ("font-size" "100%")))
-    (add-style sb :element "button:hover" `(("background-color" ,(rgb 200 200 200))))
+    (add-style sb :element "button:hover" `(("background-color" ,hover)))
     (add-style sb :element "th" `(("padding " "0px")
                                   ("font-weight" "normal")
                                   ("font-size" ,font-size))))
@@ -160,32 +155,36 @@
   (create-tables)
   (insert-random-order)
   (setf (title (html-document body)) "Open Orders")
-  (let* ((menu (create-div body))
-         (contents (create-div body :style "display: flex; flex-direction: row"))
-         (display-panel (create-div contents))
-         (edit-panel (create-div contents))
-         (home-tab (create-button menu
-                                  :content (text-with-tooltip "Home" "Swap to home menu")
-                                  :style "font-weight:bold;"))
-         (open-orders-tab (create-button menu :content "Open Orders"))
-         (clean-tab (create-button menu :content "Clean"))
-         (customer (make-instance 'customers-row))
-         (customer-input-form (create-customers-input-form display-panel customer))
-         )
-    (declare (ignore customer-input-form))
-    (set-on-click (create-button edit-panel :content "Click to add new order")
-                  (lambda (obj)
-                    (declare (ignore obj))
-                    (insert-random-order)
-                    (destroy-children display-panel)
-                    (list-open-orders display-panel)))
-    (create-button edit-panel :content *tables*)
-    (list-open-orders display-panel)
-    (set-on-click home-tab (callback (obj)
-                             (create-section display-panel :p :content "clicked home tab!")))
-    (set-on-click open-orders-tab (callback (obj) (create-section display-panel :p :content "licked open-orders-tab")))
-    (set-on-click clean-tab (callback (obj) (destroy-children display-panel)))
-    ))
+  (symbol-macrolet ((app (connection-data-item body "app")))
+    (let* ((menu (create-div body))
+           (contents (create-div body :style "display: flex; flex-direction: row"))
+           (display-panel (create-div contents :content (page app)))
+           (edit-panel (create-div contents))
+           (open-orders-tab (create-button menu :content (text-with-tooltip
+                                                          "Open Orders"
+                                                          "Swap to open orders page")
+                                           :class "pressed"))
+           (customers-tab (create-button menu :content (text-with-tooltip
+                                                        "Customers" "Swap to customers page")))
+           )
+      (declare (ignorable display-panel edit-panel))
+      (link-slot-to-element app page display-panel)
+      (defmethod (setf page) :after (new-page (app app))
+        (remove-class open-orders-tab "pressed")
+        (remove-class customers-tab "pressed")
+        (ecase new-page
+          (:customers (add-class customers-tab "pressed"))
+          (:open-orders (add-class open-orders-tab "pressed")))
+        )
+
+      (set-on-click open-orders-tab
+                    (callback (obj)
+                      (setf (page app) :open-orders)))
+      (set-on-click customers-tab
+                    (callback (obj)
+                      (setf (page app) :customers)))))
+
+    )
 
 (defun main()
   (initialize #'on-new-window)
