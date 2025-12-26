@@ -22,37 +22,47 @@
 
 (defparameter *tables* nil "list of the sql tables that have been defined in this program")
 
-(defun valid-sql-identifer-p (symbol)
-  (let ((str (symbol-name symbol)))
-    (loop :for ch :across str
-          :always (or (eq ch #\_) (alphanumericp ch)))))
-
 (defmacro deftable (name &rest fields)
-  (unless (valid-sql-identifer-p name)
-    (error "Invalid sql table name: ~a" name))
-  (let ((clos-fields (loop :for field :in fields
-                           :for field-name = (first field)
-                           :for type = (second (getf (cdr field) :type t))
-                           :collect (list field-name
-                                          :accessor field-name
-                                          :type type
-                                          :initarg (intern (symbol-name field-name) 'keyword))
-                           :do (unless (valid-sql-identifer-p field-name)
-                                 (error "Invalid sql field name: '~a~%" field-name))
+  (flet ((valid-sql-identifier-p (symbol)
+           (every (lambda (ch) (or (eq ch #\_) (alphanumericp ch))) (symbol-name symbol))))
+    (unless (valid-sql-identifier-p name)
+      (error "Invalid sql table name: ~a" name))
+    (let ((clos-fields (loop :for field :in fields
+                             :for field-name = (first field)
+                             :for type = (second (getf (cdr field) :type t))
+                             :collect (list field-name
+                                            :accessor field-name
+                                            :type type
+                                            :initarg (intern (symbol-name field-name) 'keyword))
+                             :do (unless (valid-sql-identifier-p field-name)
+                                   (error "Invalid sql field name: '~a~%" field-name))
 
-                           ))
-        (varname (intern (format nil "*SQL-CREATE-TABLE-~a*" (symbol-name name))))
-        (classname (intern (format nil "~a-ROW" (symbol-name name)))))
-    `(progn
-       (push ,(list 'quote name) *tables*)
-       (defclass ,classname ()
-         ,clos-fields)
-       (defparameter ,varname (sxql:create-table ,name ,fields))
-       ))
-  )
+                             ))
+          (varname (intern (format nil "*SQL-CREATE-TABLE-~a*" (symbol-name name))))
+          (classname (intern (format nil "~a-ROW" (symbol-name name))))
+          (funname (intern (format nil "CREATE-~a-INPUT-FORM" (symbol-name name))))
+          (funbody (loop :for field :in fields
+                         :collect `(let* ((div (create-div form :style "flex-direction:column;"))
+                                          (title (create-p div :content ,(symbol-name (first field))))
+                                          (obj (create-form-element div :text)))
+                                     (declare (ignore title))
+                                     (link-slot-to-form-element
+                                      table-instance ,(first field)
+                                      obj
+                                      :transform #'string-upcase)))))
+      `(progn
+         (push ,(list 'quote name) *tables*)
+         (defclass ,classname ()
+           ,clos-fields)
+         (defparameter ,varname (sxql:create-table ,name ,fields))
+         (defun ,funname (clog-obj table-instance)
+           (let* ((form (create-form clog-obj)))
+             ,@funbody))
+         ))
+    ))
 
 
-;;; IMPL
+;;;
 (defparameter *database-path* "database.sqlite3")
 (defvar *database* nil)
 
@@ -61,7 +71,7 @@
     (setf *database* (dbi:connect :sqlite3 :database-name *database-path*))))
 
 (defmacro do-sql (&body body)
-  `(progn (format t "~a~%" ,@body)
+  `(progn ;;c (format t "~a~%" ,@body)
           (ensure-database-connected)
           (multiple-value-bind (sql params) (sxql:yield ,@body)
             (dbi:execute (dbi:prepare *database* sql) params))))
@@ -120,33 +130,49 @@
        :due_date (format nil "~a-~a-~a" (random 10) (random 28) (+ 2025 (random 3))))
       )))
 
+(defun text-with-tooltip (text tooltip)
+  (format nil "<div title=\"~a\">~a</div>" tooltip text))
+
 (defun on-new-window (body)
-  (let ((sb (create-style-block body)))
-    (add-style sb :element "body" '(("color" :black)
+  (let* ((font-size "11pt")
+         (sb (create-style-block body)))
+    (add-style sb :element "body" `(("color" :black)
                                     ("background-color" :white)
                                     ("border" :none)
                                     ("padding" 0)
                                     ("margin" 0)
                                     ("display" :flex)
                                     ("flex-direction" :column)
-                                    ("font-family" "arial")))
+                                    ("font-family" "arial")
+                                    ("font-size" ,font-size)))
     (add-style sb :element "button"       '(("color"           :black)
                                             ("text-decoration" :none)
-                                            ("border"          :none)
-                                            ("background" :white)))
-    (add-style sb :element "button:hover" `(("background-color" ,(rgb 200 200 200)))))
+                                            ("border"          :solid)
+                                            ("border-width" "1px")
+                                            ("background" :white)
+                                            ("font-size" "100%")))
+    (add-style sb :element "button:hover" `(("background-color" ,(rgb 200 200 200))))
+    (add-style sb :element "th" `(("padding " "0px")
+                                  ("font-weight" "normal")
+                                  ("font-size" ,font-size))))
 
   (ensure-database-connected)
+  (create-tables)
   (insert-random-order)
   (setf (title (html-document body)) "Open Orders")
   (let* ((menu (create-div body))
          (contents (create-div body :style "display: flex; flex-direction: row"))
          (display-panel (create-div contents))
          (edit-panel (create-div contents))
-         (home-tab (create-button menu :content "<div title=\"go to home\">Home</div>" :style "font-weight:bold;"))
+         (home-tab (create-button menu
+                                  :content (text-with-tooltip "Home" "Swap to home menu")
+                                  :style "font-weight:bold;"))
          (open-orders-tab (create-button menu :content "Open Orders"))
          (clean-tab (create-button menu :content "Clean"))
+         (customer (make-instance 'customers-row))
+         (customer-input-form (create-customers-input-form display-panel customer))
          )
+    (declare (ignore customer-input-form))
     (set-on-click (create-button edit-panel :content "Click to add new order")
                   (lambda (obj)
                     (declare (ignore obj))
@@ -155,7 +181,8 @@
                     (list-open-orders display-panel)))
     (create-button edit-panel :content *tables*)
     (list-open-orders display-panel)
-    (set-on-click home-tab (callback (obj) (create-section display-panel :p :content "clicked home tab!")))
+    (set-on-click home-tab (callback (obj)
+                             (create-section display-panel :p :content "clicked home tab!")))
     (set-on-click open-orders-tab (callback (obj) (create-section display-panel :p :content "licked open-orders-tab")))
     (set-on-click clean-tab (callback (obj) (destroy-children display-panel)))
     ))
