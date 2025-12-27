@@ -1,5 +1,5 @@
 (defpackage #:cl-db.main
-  (:use #:cl #:clog)
+  (:use #:cl #:clog #:clog-gui)
   (:export #:main #:create-tables))
 (in-package #:cl-db.main)
 
@@ -123,66 +123,66 @@
 (defclass app ()
   ((page :accessor page :initform :open-orders :type app-page)))
 
+(defun open-orders (obj)
+  (let ((win (create-gui-window obj :title "Count")))
+    (dotimes (n 100)
+      ;; window-content is the root element for the clog-gui
+      ;; windows
+      (create-div (window-content win) :content n))))
+
+(defun on-help-about (obj)
+  (let* ((about (create-gui-window obj
+                                   :title   "About"
+                                   :content "<div class='w3-black'>
+                                         <center><img src='/img/clogwicon.png'></center>
+                                         <center>Campro Open Orders</center>
+                                         <center><i>Made using CLOG</i></center></div>
+                                         <div><p><center>Code by</center>
+                                         <center>(c) 2025 - Wess Burnett</center></p></div>"
+                                   :hidden  t
+                                   :width   200
+                                   :height  215)))
+    (window-center about)
+    (setf (visiblep about) t)
+    (set-on-window-can-size about (lambda (obj)
+                                    (declare (ignore obj))()))))
+
 (defun on-new-window (body)
   (setf (connection-data-item body "app") (make-instance 'app))
-  (let* ((font-size "11pt")
-         (hover (rgb 230 230 230))
-         (sb (create-style-block body)))
-    (add-style sb :class "pressed" `(("text-shadow" "0px 0px 1px black")))
-    (add-style sb :element "body" `(("color" :black)
-                                    ("background-color" :white)
-                                    ("border" :none)
-                                    ("padding" 0)
-                                    ("margin" 0)
-                                    ("display" :flex)
-                                    ("flex-direction" :column)
-                                    ("font-family" "arial")
-                                    ("font-size" ,font-size)))
-    (add-style sb :element "button"       '(("color"           :black)
-                                            ("text-decoration" :none)
-                                            ("border"          :solid)
-                                            ("border-width" "1px")
-                                            ("background" :white)
-                                            ("font-size" "100%")))
-    (add-style sb :element "button:hover" `(("background-color" ,hover)))
-    (add-style sb :element "th" `(("padding " "0px")
-                                  ("font-weight" "normal")
-                                  ("font-size" ,font-size))))
+  (clog-gui-initialize body)
+  (enable-clog-popup)                   ; To allow browser popups
+  (add-class body "w3-cyan")
 
-  (ensure-database-connected)
-  (create-tables)
-  (insert-random-order)
-  (setf (title (html-document body)) "Open Orders")
-  (symbol-macrolet ((app (connection-data-item body "app")))
-    (let* ((menu (create-div body))
-           (contents (create-div body :style "display: flex; flex-direction: row"))
-           (display-panel (create-div contents :content (page app)))
-           (edit-panel (create-div contents))
-           (open-orders-tab (create-button menu :content (text-with-tooltip
-                                                          "Open Orders"
-                                                          "Swap to open orders page")
-                                           :class "pressed"))
-           (customers-tab (create-button menu :content (text-with-tooltip
-                                                        "Customers" "Swap to customers page")))
-           )
-      (declare (ignorable display-panel edit-panel))
-      (link-slot-to-element app page display-panel)
-      (defmethod (setf page) :after (new-page (app app))
-        (remove-class open-orders-tab "pressed")
-        (remove-class customers-tab "pressed")
-        (ecase new-page
-          (:customers (add-class customers-tab "pressed"))
-          (:open-orders (add-class open-orders-tab "pressed")))
-        )
+  (with-clog-create body
+      (gui-menu-bar
+       ()
+       (gui-menu-icon (:on-click 'on-help-about))
+       (gui-menu-item (:content "Open Orders" :on-click 'open-orders))
+       (gui-menu-drop-down (:content "File")
+                           (gui-menu-item (:content "Count" :on-click 'on-file-count))
+                           (gui-menu-item (:content "Browse" :on-click 'on-file-browse))
+                           (gui-menu-item (:content "Drawing" :on-click 'on-file-drawing))
+                           (gui-menu-item (:content "Movie" :on-click 'on-file-movies))
+                           (gui-menu-item (:content "Pinned" :on-click 'on-file-pinned)))
+       (gui-menu-drop-down (:content "Window")
+                           (gui-menu-item (:content "Maximize All" :on-click 'maximize-all-windows))
+                           (gui-menu-item (:content "Normalize All" :on-click 'normalize-all-windows))
+                           (gui-menu-window-select ()))
+       (gui-menu-drop-down (:content "Dialogs")
+                           (gui-menu-item (:content "Alert Dialog Box" :on-click 'on-dlg-alert))
+                           (gui-menu-item (:content "Input Dialog Box" :on-click 'on-dlg-input))
+                           (gui-menu-item (:content "Confirm Dialog Box" :on-click 'on-dlg-confirm))
+                           (gui-menu-item (:content "Form Dialog Box" :on-click 'on-dlg-form))
+                           (gui-menu-item (:content "Server File Dialog Box" :on-click 'on-dlg-file)))
+       (gui-menu-drop-down (:content "Toasts")
+                           (gui-menu-item (:content "Alert Toast" :on-click 'on-toast-alert))
+                           (gui-menu-item (:content "Warning Toast" :on-click 'on-toast-warn))
+                           (gui-menu-item (:content "Success Toast" :on-click 'on-toast-success)))
+       (gui-menu-drop-down (:content "Help")
+                           (gui-menu-item (:content "About" :on-click 'on-help-about)))
+       (gui-menu-full-screen ())))
 
-      (set-on-click open-orders-tab
-                    (callback (obj)
-                      (setf (page app) :open-orders)))
-      (set-on-click customers-tab
-                    (callback (obj)
-                      (setf (page app) :customers)))))
-
-    )
+  )
 
 (defun main()
   (initialize #'on-new-window)
