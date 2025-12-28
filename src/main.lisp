@@ -19,36 +19,16 @@
   `(lambda ,args (declare (ignorable ,@args))
      ,@body)
   )
-
-(defparameter *tables* nil "list of the sql tables that have been defined in this program")
-
+ 
 (defmacro deftable (name &rest fields)
   (flet ((valid-sql-identifier-p (symbol)
            (every (lambda (ch) (or (eq ch #\_) (alphanumericp ch))) (symbol-name symbol))))
     (unless (valid-sql-identifier-p name)
       (error "Invalid sql table name: ~a" name))
-    (let ((clos-fields (loop :for field :in fields
-                             :for field-name = (first field)
-                             :for type = (second (getf (cdr field) :type t))
-                             :collect (list field-name
-                                            :accessor field-name
-                                            :type type
-                                            :initarg (intern (symbol-name field-name) 'keyword))
-                             :do (unless (valid-sql-identifier-p field-name)
-                                   (error "Invalid sql field name: '~a~%" field-name))
+    (let ((varname (intern (format nil "*SQL-CREATE-TABLE-~a*" (symbol-name name)))))
+      `(defparameter ,varname (sxql:create-table ,name ,fields))
+      )))
 
-                             ))
-          (varname (intern (format nil "*SQL-CREATE-TABLE-~a*" (symbol-name name))))
-          (classname (intern (format nil "~a-ROW" (symbol-name name)))))
-      `(progn
-         (push ,(list 'quote name) *tables*)
-         (defclass ,classname ()
-           ,clos-fields)
-         (defparameter ,varname (sxql:create-table ,name ,fields))
-         ))))
-
-
-;;;
 (defparameter *database-path* "database.sqlite3")
 (defvar *database* nil)
 
@@ -57,54 +37,54 @@
     (setf *database* (dbi:connect :sqlite3 :database-name *database-path*))))
 
 (defmacro do-sql (&body body)
-  `(progn ;;c (format t "~a~%" ,@body)
-          (ensure-database-connected)
-          (multiple-value-bind (sql params) (sxql:yield ,@body)
-            (dbi:execute (dbi:prepare *database* sql) params))))
+  `(progn 
+     (ensure-database-connected)
+     (multiple-value-bind (sql params) (sxql:yield ,@body)
+       (dbi:execute (dbi:prepare *database* sql) params))))
 
-(deftable customers
-  (id :type 'integer :primary-key t :auto-increment t)
-  (name :type 'text :not-null t)
-  (primary_contact_name :type 'text)
-  (primary_contact_email :type 'text))
+(defparameter *customers-table-definition*
+  (sxql:create-table customers ()
+    '((id :type 'integer :primary-key t :auto-increment t)
+     (name :type 'text :not-null t)
+     (primary_contact_name :type 'text)
+     (primary_contact_email :type 'text))))
 
-(deftable orders
-  (id :type 'integer :primary-key t :auto-increment t)
-  (purchase_order_number :type 'text)
-  (customer_id :type 'integer)          ;foreign key references customers
-  (part_number :type 'text)
-  (quantity :type 'integer)
-  (due_date :type 'text)
-  )
+(defparameter *orders-table-definition*
+  (sxql:create-table orders ()
+    '((id :type 'integer :primary-key t :auto-increment t)
+     (purchase_order_number :type 'text)
+     (customer_id :type 'integer)          ;foreign key references customers
+     (part_number :type 'text)
+     (quantity :type 'integer)
+     (due_date :type 'text))
+    ))
 
 (defun create-tables ()
   (do-sql (sxql:drop-table :customers :if-exists t))
   (do-sql (sxql:drop-table :orders  :if-exists t))
-  (do-sql *sql-create-table-customers*)
-  (do-sql *sql-create-table-orders*)
+  (do-sql *orders-table-definition*)
+  (do-sql *customers-table-definition*)
   )
 
 (defun list-open-orders (obj)
   (let* ((query (do-sql (sxql:select (:part_number :purchase_order_number :quantity :due_date)
                           (sxql:from :orders))))
          (table (clog:create-table obj))
-         (heading (clog:create-table-row table)))
-    (setf (background-color heading) "#dddddd")
-    (create-table-heading heading :content "Part Number" :style "min-width:200px;")
-    (create-table-heading heading :content "Purchase Order Number" :style "min-width:200px;")
-    (create-table-heading heading :content "Quantity" :style "min-width:200px;")
-    (create-table-heading heading :content "Due Date" :style "min-width:200px;")
+         (heading (clog:create-table-row table :style "width:100%;table-layout:fixed;table-collapse:collapse;"))
+         (style " border: 1px solid #999; padding: 6px 8px; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; width:25%;"))
+    (create-table-heading heading :content "Part Number"           :style style)
+    (create-table-heading heading :content "Purchase Order Number" :style style)
+    (create-table-heading heading :content "Quantity"              :style style)
+    (create-table-heading heading :content "Due Date"              :style style)
     (loop :for row = (dbi:fetch query)
           :for i :from 0 :below 1000
           :while row
           :for table-row = (clog:create-table-row table)
           :do
-             (when (oddp i)
-               (setf (background-color table-row) "#eeeeee"))
-             (create-table-column table-row :content (getf row :|part_number|))
-             (create-table-column table-row :content (getf row :|purchase_order_number|))
-             (create-table-column table-row :content (getf row :|quantity|))
-             (create-table-column table-row :content (getf row :|due_date|)))))
+             (create-table-column table-row :style style :content (getf row :part_number))
+             (create-table-column table-row :style style :content (getf row :purchase_order_number))
+             (create-table-column table-row :style style :content (getf row :quantity))
+             (create-table-column table-row :style style :content (getf row :due_date)))))
 
 (defun insert-random-order ()
   (do-sql
@@ -124,11 +104,12 @@
   ((page :accessor page :initform :open-orders :type app-page)))
 
 (defun open-orders (obj)
-  (let ((win (create-gui-window obj :title "Count")))
-    (dotimes (n 100)
-      ;; window-content is the root element for the clog-gui
-      ;; windows
-      (create-div (window-content win) :content n))))
+  (let* ((content-width 770)
+         (win (create-gui-window obj :title "Open Orders List"
+                                     :width content-width
+                                     )))
+    (list-open-orders (window-content win))
+    ))
 
 (defun on-help-about (obj)
   (let* ((about (create-gui-window obj
@@ -136,7 +117,7 @@
                                    :content "<div class='w3-black'>
                                          <center><img src='/img/clogwicon.png'></center>
                                          <center>Campro Open Orders</center>
-                                         <center><i>Made using CLOG</i></center></div>
+                                         <center><i>Made using CLOG</i></center><br/></div>
                                          <div><p><center>Code by</center>
                                          <center>(c) 2025 - Wess Burnett</center></p></div>"
                                    :hidden  t
