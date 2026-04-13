@@ -165,7 +165,36 @@
 
   )
 
-(defun main()
+(defparameter *quit* nil
+  "When true the executable should quit")
+
+(defun on-new-window (body)
+  (set-html-on-close body "<script>close();</script>")
+  (setf (title (html-document body)) "Overhead")
+  (clog-gui-initialize body)
+  (enable-clog-popup)                   ; To allow browser popups
+  (add-class body "w3-cyan")
+
+  (setf *menu* (create-toplevel-menu body))
+  (on-overhead-calculator body)
+
+  ;; Block until body has been closed
+  (run body)
+
+  ;; Quit the executable  
+  (setf *quit* t)
+  )
+
+(defun main ()
+  (setf *quit* nil)
+  (ignore-errors
+   (clog:shutdown))
   (initialize #'on-new-window)
   (open-browser)
+  (loop
+   :until *quit*
+   :do
+      (sleep 1))
+  (clog:shutdown)
   )
+

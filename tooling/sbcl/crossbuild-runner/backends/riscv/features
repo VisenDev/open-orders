@@ -1,2 +1,0 @@
-:gencgc
-:compare-and-swap-vops :memory-barrier-vops

@@ -1,4 +1,3 @@
-(in-package :cl-user)
 (defpackage cl-annot.doc
   (:nicknames :annot.doc)
   (:use :cl
