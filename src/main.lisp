@@ -3,6 +3,7 @@
   (:export #:main #:create-tables))
 (in-package #:cl-db.main)
 
+(defparameter *menu* nil )
 
 ;;; UTILS
 (defmacro quick-defclass (name superclasses &body slots)
@@ -128,42 +129,15 @@
     (set-on-window-can-size about (lambda (obj)
                                     (declare (ignore obj))()))))
 
-(defun on-new-window (body)
-  (setf (connection-data-item body "app") (make-instance 'app))
-  (clog-gui-initialize body)
-  (enable-clog-popup)                   ; To allow browser popups
-  (add-class body "w3-cyan")
+;; (defun on-new-window (body)
+;;   (setf (connection-data-item body "app") (make-instance 'app))
+;;   (clog-gui-initialize body)
+;;   (enable-clog-popup)                   ; To allow browser popups
+;;   (add-class body "w3-cyan")
 
-  (with-clog-create body
-      (gui-menu-bar
-       ()
-       (gui-menu-icon (:on-click 'on-help-about))
-       (gui-menu-item (:content "Open Orders" :on-click 'open-orders))
-       (gui-menu-drop-down (:content "File")
-                           (gui-menu-item (:content "Count" :on-click 'on-file-count))
-                           (gui-menu-item (:content "Browse" :on-click 'on-file-browse))
-                           (gui-menu-item (:content "Drawing" :on-click 'on-file-drawing))
-                           (gui-menu-item (:content "Movie" :on-click 'on-file-movies))
-                           (gui-menu-item (:content "Pinned" :on-click 'on-file-pinned)))
-       (gui-menu-drop-down (:content "Window")
-                           (gui-menu-item (:content "Maximize All" :on-click 'maximize-all-windows))
-                           (gui-menu-item (:content "Normalize All" :on-click 'normalize-all-windows))
-                           (gui-menu-window-select ()))
-       (gui-menu-drop-down (:content "Dialogs")
-                           (gui-menu-item (:content "Alert Dialog Box" :on-click 'on-dlg-alert))
-                           (gui-menu-item (:content "Input Dialog Box" :on-click 'on-dlg-input))
-                           (gui-menu-item (:content "Confirm Dialog Box" :on-click 'on-dlg-confirm))
-                           (gui-menu-item (:content "Form Dialog Box" :on-click 'on-dlg-form))
-                           (gui-menu-item (:content "Server File Dialog Box" :on-click 'on-dlg-file)))
-       (gui-menu-drop-down (:content "Toasts")
-                           (gui-menu-item (:content "Alert Toast" :on-click 'on-toast-alert))
-                           (gui-menu-item (:content "Warning Toast" :on-click 'on-toast-warn))
-                           (gui-menu-item (:content "Success Toast" :on-click 'on-toast-success)))
-       (gui-menu-drop-down (:content "Help")
-                           (gui-menu-item (:content "About" :on-click 'on-help-about)))
-       (gui-menu-full-screen ())))
 
-  )
+
+;;   )
 
 (defparameter *quit* nil
   "When true the executable should quit")
@@ -173,10 +147,9 @@
   (setf (title (html-document body)) "Overhead")
   (clog-gui-initialize body)
   (enable-clog-popup)                   ; To allow browser popups
-  (add-class body "w3-cyan")
+  ;; (add-class body "w3-cyan")
 
-  (setf *menu* (create-toplevel-menu body))
-  (on-overhead-calculator body)
+
 
   ;; Block until body has been closed
   (run body)
