@@ -1,9 +1,10 @@
 (in-package #:asdf-user)
 
-(defsystem "cl-db" 
+(defsystem "open-orders" 
   :author "Robert Burnett"
   :license "Apache-2.0"
-  :depends-on ("clog"
+  :depends-on ("trivial-features"
+               "clog"
                "closer-mop"
                "defclass-std"
                "marshal"
@@ -13,9 +14,9 @@
                 :components ((:file "database")
                              (:file "main")))))
 
-;;(defsystem "cl-db/executable"
-;;  :build-operation program-op
-;;  :build-pathname "cl-db"
-;;  :entry-point "cl-db/main:main"
-;;  :depends-on ("cl-db")
-;;  )
+(defsystem "open-orders/executable"
+  :build-operation program-op
+  :build-pathname "open-orders"
+  :entry-point "open-orders.main:main"
+  :depends-on ("open-orders")
+  )

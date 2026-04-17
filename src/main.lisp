@@ -1,12 +1,11 @@
-(defpackage #:cl-db.main
+(defpackage #:open-orders.main
   (:use #:cl #:clog)
   (:import-from #:defclass-std
                 #:defclass/std
                 #:class/std)
-  (:local-nicknames (#:db #:cl-db.database))
-  (:shadow #:get)
+  (:local-nicknames (#:db #:open-orders.database))
   (:export #:main))
-(in-package #:cl-db.main)
+(in-package #:open-orders.main)
 
 (deftype id () 'integer)
 
