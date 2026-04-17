@@ -27,35 +27,23 @@
   )
 
 
-(defvar *db* (make-instance 'db:database))
-(defvar *db-path* "cl-db.database")
+;; (defvar *db* (make-instance 'db:database))
+;; (defvar *db-path* "cl-db.database")
 
 (defmacro callback (args &body body)
   `(lambda ,args (declare (ignorable ,@args))
      ,@body)
   )
  
-(defmacro deftable (name &rest fields)
-  (flet ((valid-sql-identifier-p (symbol)
-           (every (lambda (ch) (or (eq ch #\_) (alphanumericp ch))) (symbol-name symbol))))
-    (unless (valid-sql-identifier-p name)
-      (error "Invalid sql table name: ~a" name))
-    (let ((varname (intern (format nil "*SQL-CREATE-TABLE-~a*" (symbol-name name)))))
-      `(defparameter ,varname (sxql:create-table ,name ,fields))
-      )))
+;; (defmacro deftable (name &rest fields)
+;;   (flet ((valid-sql-identifier-p (symbol)
+;;            (every (lambda (ch) (or (eq ch #\_) (alphanumericp ch))) (symbol-name symbol))))
+;;     (unless (valid-sql-identifier-p name)
+;;       (error "Invalid sql table name: ~a" name))
+;;     (let ((varname (intern (format nil "*SQL-CREATE-TABLE-~a*" (symbol-name name)))))
+;;       `(defparameter ,varname (sxql:create-table ,name ,fields))
+;;       )))
 
-(defparameter *database-path* "database.sqlite3")
-(defvar *database* nil)
-
-(defun ensure-database-connected ()
-  (unless *database*
-    (setf *database* (dbi:connect :sqlite3 :database-name *database-path*))))
-
-(defmacro do-sql (&body body)
-  `(progn 
-     (ensure-database-connected)
-     (multiple-value-bind (sql params) (sxql:yield ,@body)
-       (dbi:execute (dbi:prepare *database* sql) params))))
 
 (defparameter *quit* nil
   "When true the executable should quit")

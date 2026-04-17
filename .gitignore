@@ -9,3 +9,5 @@ tooling/sbcl/clean
 *.sqlite
 *.sqlite3
 *.database
+open-orders
+

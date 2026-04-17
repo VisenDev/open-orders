@@ -2,9 +2,13 @@ LISP?=sbcl
 
 main:
 	$(LISP) --eval '(load "init.lisp")' \
-	--eval '(sb-ext:save-lisp-and-die "main" :executable t :toplevel `cl-db.main:main)'
+	--eval '(asdf:make "open-orders/executable")' \
+	--eval '(uiop:quit)'
 
 clean:
 	trash **.fasl
+	trash open-orders
+	trash *.sqlite3
+	trash *.database
 
-.PHONY: main clean
+

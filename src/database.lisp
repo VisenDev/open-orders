@@ -8,7 +8,7 @@
            #:insert
            #:serialize
            #:deserialize))
-(in-package cl-db.database)
+(in-package open-orders.database)
 
 (defmethod marshal:class-persistent-slots ((serializable standard-object))
   (closer-mop:ensure-finalized (class-of serializable))
