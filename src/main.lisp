@@ -1,20 +1,35 @@
 (defpackage #:cl-db.main
-  (:use #:cl #:clog #:clog-gui)
-  (:export #:main #:create-tables))
+  (:use #:cl #:clog)
+  (:import-from #:defclass-std
+                #:defclass/std
+                #:class/std)
+  (:local-nicknames (#:db #:cl-db.database))
+  (:shadow #:get)
+  (:export #:main))
 (in-package #:cl-db.main)
 
-(defparameter *menu* nil )
+(deftype id () 'integer)
 
-;;; UTILS
-(defmacro quick-defclass (name superclasses &body slots)
-  (let* ((slot-forms nil))
-    (loop :for slot :in slots
-          :do (push
-               `(,slot :initarg ,(intern (symbol-name slot) 'keyword) :accessor ,slot)
-               slot-forms))
-    `(defclass ,name ,superclasses ,slot-forms)
-    )
+(defclass/std person ()
+  ((first-name
+    last-name
+    email
+    phone
+    :type string)))
+
+(defclass/std customer ()
+  ((primary-contact :type id)
+   (name :type string)))
+
+(defclass/std line-item ()
+  ((customer :type id)
+   (order-number :type string)
+   )
   )
+
+
+(defvar *db* (make-instance 'db:database))
+(defvar *db-path* "cl-db.database")
 
 (defmacro callback (args &body body)
   `(lambda ,args (declare (ignorable ,@args))
@@ -43,116 +58,20 @@
      (multiple-value-bind (sql params) (sxql:yield ,@body)
        (dbi:execute (dbi:prepare *database* sql) params))))
 
-(defparameter *customers-table-definition*
-  (sxql:create-table customers ()
-    '((id :type 'integer :primary-key t :auto-increment t)
-     (name :type 'text :not-null t)
-     (primary_contact_name :type 'text)
-     (primary_contact_email :type 'text))))
-
-(defparameter *orders-table-definition*
-  (sxql:create-table orders ()
-    '((id :type 'integer :primary-key t :auto-increment t)
-     (purchase_order_number :type 'text)
-     (customer_id :type 'integer)          ;foreign key references customers
-     (part_number :type 'text)
-     (quantity :type 'integer)
-     (due_date :type 'text))
-    ))
-
-(defun create-tables ()
-  (do-sql (sxql:drop-table :customers :if-exists t))
-  (do-sql (sxql:drop-table :orders  :if-exists t))
-  (do-sql *orders-table-definition*)
-  (do-sql *customers-table-definition*)
-  )
-
-(defun list-open-orders (obj)
-  (let* ((query (do-sql (sxql:select (:part_number :purchase_order_number :quantity :due_date)
-                          (sxql:from :orders))))
-         (table (clog:create-table obj))
-         (heading (clog:create-table-row table :style "width:100%;table-layout:fixed;table-collapse:collapse;"))
-         (style " border: 1px solid #999; padding: 6px 8px; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; width:25%;"))
-    (create-table-heading heading :content "Part Number"           :style style)
-    (create-table-heading heading :content "Purchase Order Number" :style style)
-    (create-table-heading heading :content "Quantity"              :style style)
-    (create-table-heading heading :content "Due Date"              :style style)
-    (loop :for row = (dbi:fetch query)
-          :for i :from 0 :below 1000
-          :while row
-          :for table-row = (clog:create-table-row table)
-          :do
-             (create-table-column table-row :style style :content (getf row :part_number))
-             (create-table-column table-row :style style :content (getf row :purchase_order_number))
-             (create-table-column table-row :style style :content (getf row :quantity))
-             (create-table-column table-row :style style :content (getf row :due_date)))))
-
-(defun insert-random-order ()
-  (do-sql
-    (sxql:insert-into :orders
-      (sxql:set= 
-       :purchase_order_number (random 10000)
-       :part_number (random 100000)
-       :quantity (* 100 (random 100))
-       :due_date (format nil "~a-~a-~a" (random 10) (random 28) (+ 2025 (random 3))))
-      )))
-
-(defun text-with-tooltip (text tooltip)
-  (format nil "<div title=\"~a\">~a</div>" tooltip text))
-
-(deftype app-page () '(member :open-orders :customers))
-(defclass app ()
-  ((page :accessor page :initform :open-orders :type app-page)))
-
-(defun open-orders (obj)
-  (let* ((content-width 770)
-         (win (create-gui-window obj :title "Open Orders List"
-                                     :width content-width
-                                     )))
-    (list-open-orders (window-content win))
-    ))
-
-(defun on-help-about (obj)
-  (let* ((about (create-gui-window obj
-                                   :title   "About"
-                                   :content "<div class='w3-black'>
-                                         <center><img src='/img/clogwicon.png'></center>
-                                         <center>Campro Open Orders</center>
-                                         <center><i>Made using CLOG</i></center><br/></div>
-                                         <div><p><center>Code by</center>
-                                         <center>(c) 2025 - Wess Burnett</center></p></div>"
-                                   :hidden  t
-                                   :width   200
-                                   :height  215)))
-    (window-center about)
-    (setf (visiblep about) t)
-    (set-on-window-can-size about (lambda (obj)
-                                    (declare (ignore obj))()))))
-
-;; (defun on-new-window (body)
-;;   (setf (connection-data-item body "app") (make-instance 'app))
-;;   (clog-gui-initialize body)
-;;   (enable-clog-popup)                   ; To allow browser popups
-;;   (add-class body "w3-cyan")
-
-
-
-;;   )
-
 (defparameter *quit* nil
   "When true the executable should quit")
 
 (defun on-new-window (body)
-  (set-html-on-close body "<script>close();</script>")
-  (setf (title (html-document body)) "Overhead")
-  (clog-gui-initialize body)
-  (enable-clog-popup)                   ; To allow browser popups
+  (clog:set-html-on-close body "<script>close();</script>")
+  (setf (clog:title (clog:html-document body)) "Campro")
+  ;; (clog:clog-gui-initialize body)
+  (clog:enable-clog-popup)                   ; To allow browser popups
   ;; (add-class body "w3-cyan")
 
 
 
   ;; Block until body has been closed
-  (run body)
+  (clog:run body)
 
   ;; Quit the executable  
   (setf *quit* t)
@@ -162,8 +81,8 @@
   (setf *quit* nil)
   (ignore-errors
    (clog:shutdown))
-  (initialize #'on-new-window)
-  (open-browser)
+  (clog:initialize #'on-new-window)
+  (clog:open-browser)
   (loop
    :until *quit*
    :do

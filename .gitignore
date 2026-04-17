@@ -8,3 +8,4 @@ tooling/sbcl/build
 tooling/sbcl/clean
 *.sqlite
 *.sqlite3
+*.database

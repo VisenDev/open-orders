@@ -1,9 +1,17 @@
+(in-package #:asdf-user)
+
 (defsystem "cl-db" 
   :author "Robert Burnett"
   :license "Apache-2.0"
-  :depends-on ("clog" "sxql" "dbi" "closer-mop")
+  :depends-on ("clog"
+               "closer-mop"
+               "defclass-std"
+               "marshal"
+               "uiop")
+  :serial t
   :components ((:module "src"
-                :components ((:file "main")))))
+                :components ((:file "database")
+                             (:file "main")))))
 
 ;;(defsystem "cl-db/executable"
 ;;  :build-operation program-op
