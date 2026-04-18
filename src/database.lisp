@@ -15,6 +15,19 @@
   (mapcar #'closer-mop:slot-definition-name
           (closer-mop:class-slots (class-of serializable))))
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 (defclass/std database ()
   ((id-counter :std 0 :type integer)
    (elements :std (make-hash-table))))

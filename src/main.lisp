@@ -3,28 +3,83 @@
   (:import-from #:defclass-std
                 #:defclass/std
                 #:class/std)
-  (:local-nicknames (#:db #:open-orders.database))
+  (:local-nicknames (#:db #:open-orders.database)
+                    (#:a #:alexandria))
   (:export #:main))
 (in-package #:open-orders.main)
 
-(deftype id () 'integer)
+;; (deftype id () 'integer)
 
-(defclass/std person ()
-  ((first-name
-    last-name
-    email
-    phone
-    :type string)))
+;; (defclass/std person ()
+;;   ((first-name
+;;     last-name
+;;     email
+;;     phone
+;;     :type string)))
 
-(defclass/std customer ()
-  ((primary-contact :type id)
-   (name :type string)))
+;; (defclass/std customer ()
+;;   ((primary-contact :type id)
+;;    (name :type string)))
 
-(defclass/std line-item ()
-  ((customer :type id)
-   (order-number :type string)
-   )
+;; (defclass/std line-item ()
+;;   ((customer :type id)
+;;    (order-number :type string)
+;;    )
+;;   )
+
+(defmacro do-sql (database &body body)
+  `(multiple-value-bind (sql params) (sxql:yield ,@body)
+    (dbi:execute (dbi:prepare ,database sql) params)))
+
+(class/std table-definition sql forms)
+
+(defvar *tables* (make-hash-table)
+  "What the sql tables should look like")
+(defvar *active-table-definitions* (make-hash-table)
+  "The actually active definitions for sql tables")
+(defmacro deftable (name &body |(name type)|)
+  (let* ((body |(name type)|)
+         (sql-rows (loop :for (name type) :in body
+                         :collect `(,name :type ',type)))
+         (class-rows (loop :for (name type) :in body
+                           :collect `(,name :type ,type))))
+    `(progn
+       (setf (gethash ',name *tables*)
+             (make-instance 'table-definition
+                            :sql (sxql:create-table ,name
+                                     ,(cons '(id :type 'integer
+                                              :auto-increment t
+                                              :primary-key t)
+                                            sql-rows))
+                            :forms ,body))
+       (defclass/std ,name () ,(cons '(id :type integer) class-rows)))))
+
+(deftable person
+  (first-name string)
+  (last-name string))
+
+(defun columns-to-add (old-definition-forms new-definition-forms)
+  (loop :for (oldname oldtype) :in (old-definition-forms)
+        )
   )
+
+(defun migrate-table (name old-definition-forms new-definition-forms)
+  "Updates an existing sql table to follow a new schema"
+  (let* ((diff (loop :for old :in old-definition-forms
+                     :for new :in new-definition-forms
+                     :unless (equalp old new)))))
+  )
+
+(defun ensure-tables-exist (database)
+  (maphash *tables*
+           (lambda (key value)
+             (a:if-let (old (gethash key *active-table-definitions*))
+               ()
+               (do-sql (sxql:drop-table key :if-exists t)))
+             ))
+  )
+
+(sxql:yield (gethash 'person *tables*))
 
 
 ;; (defvar *db* (make-instance 'db:database))
