@@ -42,7 +42,7 @@
          (sql-rows (loop :for (name type) :in body
                          :collect `(,name :type ',type)))
          (class-rows (loop :for (name type) :in body
-                           :collect `(,name :type ,type))))
+                           :collect `(,name :type ,(if (eq type 'blob) t type)))))
     `(progn
        (setf (gethash ',name *tables*)
              (make-instance 'table-definition
@@ -51,36 +51,60 @@
                                               :auto-increment t
                                               :primary-key t)
                                             sql-rows))
-                            :forms ,body))
+                            :forms ',body))
        (defclass/std ,name () ,(cons '(id :type integer) class-rows)))))
+
+
+
+(defun update-table-schema (database table-name old-definition-forms new-definition-forms)
+  "Updates an existing sql table to follow a new schema"
+  (let ((to-delete
+          (loop :for def :in old-definition-forms
+                :unless (member def new-definition-forms :test 'equalp)
+                  :collect def))
+        (to-add 
+          (loop :for def :in new-definition-forms
+                :unless (member def old-definition-forms :test 'equalp)
+                  :collect def)))
+    (loop :for (name type) :in to-delete
+          :do (do-sql database
+                (sxql:alter-table table-name (sxql:drop-column name))))
+    (loop :for (name type) :in to-add
+          :do (do-sql database
+                (sxql:alter-table table-name (sxql:add-column name :type `',type))))))
+
+(defun ensure-tables-exist (database)
+  (maphash 
+   (lambda (k v)
+     (a:if-let (old (gethash k *active-table-definitions*))
+       (progn
+         (update-table-schema database k (forms old) (forms v))
+         (setf (gethash k *active-table-definitions*) v))
+       (do-sql database (sql v))))
+   *tables*))
+
 
 (deftable person
   (first-name string)
-  (last-name string))
+  (last-name string)
+  (email string)
+  (phone string))
 
-(defun columns-to-add (old-definition-forms new-definition-forms)
-  (loop :for (oldname oldtype) :in (old-definition-forms)
-        )
-  )
+(deftable customer
+  (name string)
+  (primary-contact integer)) ;; refererences person
 
-(defun migrate-table (name old-definition-forms new-definition-forms)
-  "Updates an existing sql table to follow a new schema"
-  (let* ((diff (loop :for old :in old-definition-forms
-                     :for new :in new-definition-forms
-                     :unless (equalp old new)))))
-  )
-
-(defun ensure-tables-exist (database)
-  (maphash *tables*
-           (lambda (key value)
-             (a:if-let (old (gethash key *active-table-definitions*))
-               ()
-               (do-sql (sxql:drop-table key :if-exists t)))
-             ))
-  )
-
-(sxql:yield (gethash 'person *tables*))
-
+(deftable open-order
+  (customer integer) ;;references customer
+  (order-number string)
+  (part-number string)
+  (description string)
+  (revision string)
+  (price string)
+  (deliveries blob)
+  (shipping-terms string)
+  (payment-terms string)
+  (notes string))
 
 ;; (defvar *db* (make-instance 'db:database))
 ;; (defvar *db-path* "cl-db.database")
