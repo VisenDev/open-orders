@@ -34,11 +34,11 @@
          (dbi:execute ,query params)
          ,query))))
 
-(class/std table-definition sql forms)
+;; (class/std table-definition sql forms)
 
 (defvar *tables* (make-hash-table)
   "What the sql tables should look like")
-(defvar *active-table-definitions* (make-hash-table)
+(defvar *active-tables* (make-hash-table)
   "The actually active definitions for sql tables")
 
 (eval-when (:compile-toplevel)
@@ -50,72 +50,17 @@
 ;; TODO create generic object insert/get/set functions rather than
 ;; definining specific macros for each object
 
-(defmacro deftable (name &body |(name type)|)
-  (let* ((body |(name type)|)
-         (sql-rows (loop :for (name type) :in body
-                         :collect `(,name :type ',type)))
-         (class-rows (loop :for (name type) :in body
-                           :collect `(,name :type ,(if (eq type 'blob) t type))))
-         (field-name-keywords
-           (mapcar
-            (a:compose #'a:make-keyword #'first)
-            body)))
-    (unless (every (a:compose #'valid-sql-identifier-p #'first) body)
-      (error "Your table has an invalid sql identifier as a field name"))
-    
-    `(progn
-
-       ;; record sql
-       (setf (gethash ',name *tables*)
-             (make-instance 'table-definition
-                            :sql (sxql:create-table
-                                     ,name
-                                     ,(cons '(id :type 'integer
-                                              :auto-increment t
-                                              :primary-key t)
-                                            sql-rows))
-                            :forms ',body))
-       ;; record class definition
-       (defclass/std ,name () ,(cons '(id :type integer) class-rows))
-
-       ;; record database get function
-       (defun ,(intern (format nil "DATABASE-~a-GET" name)) (database id)
-         (let* ((query
-                  (do-sql database
-                    (sxql:select
-                        ,field-name-keywords
-                      (sxql:from (,(a:make-keyword name)))
-                      (sxql:where (:= :id id)))))
-                (results (dbi:fetch query))
-                (instance (make-instance ',name)))
-           ,@(loop :for (name type) :in body
-                   :for i :from 0
-                   :collect `(setf (slot-value instance ',name)
-                                   (nth ,i results)))
-           instance))
-       
-       ;; record database set function
-       (defun ,(intern (format nil "DATABASE-~a-SET" name))
-           (database ,name)
-         (do-sql database
-           (sxql:update ,name
-             ',field-name-keywords
-             (list ,@(mapcar (lambda (def)
-                               `(slot-value ,name ',(first def)))
-                             (cons '(id integer) body)))
-             (sxql:where (:= :id (slot-value ,name 'id))))))
-
-       ;; record database insert new function
-       (defun ,(a:symbolicate 'database- name '-insert) (database ,name)
-         (first (dbi:fetch
-                 (do-sql database
-                   (sxql:insert-into ,name
-                     ,field-name-keywords
-                     (list ,@(mapcar (lambda (def)
-                                       `(ignore-errors
-                                         (slot-value ,name ',(first def))))
-                                     body))
-                     (sxql:returning :id)))))))))
+(defmacro deftable (name &body field-names)
+  (dolist (field-name field-names)
+    (unless (valid-sql-identifier-p field-name)
+      (error "~a is not a valid sql identifier" field-name)))
+  (unless (valid-sql-identifier-p name)
+    (error "Table name ~a is not a valid sql table name" name))
+  `(progn
+     ;; record sql
+     (setf (gethash ',name *tables*) ',body)
+     ;; record class definition
+     (class/std ,name id ,@field-names)))
 
 
 
