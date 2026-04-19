@@ -8,6 +8,9 @@
                "closer-mop"
                "defclass-std"
                "marshal"
+               "sxql"
+               "cl-dbi"
+               "sqlite"
                "uiop")
   :serial t
   :components ((:module "src"

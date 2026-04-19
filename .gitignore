@@ -1,6 +1,5 @@
 AppDir
 *.AppImage
-main
 cl-db
 .qlot/
 **fasl
