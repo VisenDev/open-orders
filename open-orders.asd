@@ -2,7 +2,7 @@
 
 (defsystem "open-orders" 
   :author "Robert Burnett"
-  :license "Apache-2.0"
+  :license "GPL-3.0"
   :depends-on ("trivial-features"
                "clog"
                "closer-mop"

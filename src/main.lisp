@@ -34,7 +34,7 @@
          (dbi:execute ,query params)
          ,query))))
 
-;; (class/std table-definition sql forms)
+(class/std table-definition create-table-sql raw-input-forms)
 
 (defvar *tables* (make-hash-table)
   "What the sql tables should look like")
@@ -45,22 +45,69 @@
   (defun valid-sql-identifier-p (symbol)
     (every (lambda (ch) (or (char= #\_ ch)
                             (alphanumericp ch)))
-           (symbol-name symbol))))
+           (symbol-name symbol)))
 
-;; TODO create generic object insert/get/set functions rather than
-;; definining specific macros for each object
+  ;; TODO create generic object insert/get/set functions rather than
+  ;; definining specific macros for each object
 
-(defmacro deftable (name &body field-names)
-  (dolist (field-name field-names)
+  (defun column-definition->sql-type (def)
+    (let ((type (second def)))
+      (cond ((and (listp type)
+                  (cl:string-equal 'foreign-key (first type)))
+             'integer)
+            (t type))))
+
+  (defun column-definition->sql-option (def)
+    (let ((type (second def))
+          (name (first def)))
+      (if (and (listp type)
+               (string-equal (first type) 'foreign-key))
+          `(sxql:foreign-key '(,name) :references '(,(second type) id))
+          nil)))
+
+  (defun column-definition->sql-column-definition (def)
+    (list (first def) :type (list 'quote (column-definition->sql-type def))))
+
+  (defun column-definition->lisp-type (def)
+    (let ((type (second def)))
+      (cond ((and (listp type)
+                  (cl:string-equal 'foreign-key (first type)))
+             'integer)
+            ((string-equal type 'blob)
+             't)
+            (t type))))
+
+  (defun column-definition->class-slot-definition (def)
+    (list (first def) :type (column-definition->lisp-type def))))
+
+
+(defmacro deftable (name &body columns)
+  "Columns should be in the form (name type). Types may be either a simple type or a
+   compound type of the form (foreign-key <referenced-table>)."
+  (dolist (field-name (mapcar #'first columns))
     (unless (valid-sql-identifier-p field-name)
       (error "~a is not a valid sql identifier" field-name)))
   (unless (valid-sql-identifier-p name)
     (error "Table name ~a is not a valid sql table name" name))
-  `(progn
-     ;; record sql
-     (setf (gethash ',name *tables*) ',body)
-     ;; record class definition
-     (class/std ,name id ,@field-names)))
+
+  (let* ((create-table-sql
+           `(sxql:create-table ,name
+                ,(cons
+                  '(id :type 'integer :primary-key t :auto-increment t)
+                  (mapcar #'column-definition->sql-column-definition columns))
+              ,(remove nil (mapcar #'column-definition->sql-option columns))))
+         (class-slots
+           (cons '(id :type integer)
+                 (mapcar #'column-definition->class-slot-definition columns))))
+    `(progn
+       ;; record sql
+       (setf (gethash ',name *tables*)
+             (make-instance 'table-definition
+                                             :raw-input-forms ',columns
+                                             :create-table-sql ,create-table-sql))
+       
+       ;; record class definition
+       (defclass/std ,name () ,class-slots))))
 
 
 
@@ -84,13 +131,13 @@
 (defun ensure-tables-exist (database)
   (maphash 
    (lambda (k v)
-     (a:if-let (old (gethash k *active-table-definitions*))
+     (a:if-let (old (gethash k *active-tables*))
        (progn
-         (update-table-schema database k (forms old) (forms v))
-         (setf (gethash k *active-table-definitions*) v))
+         (update-table-schema database k (raw-input-forms old) (raw-input-forms v))
+         (setf (gethash k *active-tables*) v))
        (progn
          (do-sql database (sxql:drop-table k :if-exists t))
-         (do-sql database (sql v)))))
+         (do-sql database (create-table-sql v)))))
    *tables*))
 
 
