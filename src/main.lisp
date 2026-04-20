@@ -95,7 +95,7 @@
                 ,(cons
                   '(id :type 'integer :primary-key t :auto-increment t)
                   (mapcar #'column-definition->sql-column-definition columns))
-              ,(remove nil (mapcar #'column-definition->sql-option columns))))
+              ,@(remove nil (mapcar #'column-definition->sql-option columns))))
          (class-slots
            (cons '(id :type integer)
                  (mapcar #'column-definition->class-slot-definition columns))))
@@ -150,10 +150,10 @@
 
 (deftable customer
   (name string)
-  (primary_contact integer)) ;; refererences person
+  (primary_contact (foreign-key person)))
 
 (deftable open_order
-  (customer integer) ;;references customer
+  (customer (foreign-key customer))
   (order_number string)
   (part_number string)
   (description string)
