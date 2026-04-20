@@ -8,25 +8,6 @@
   (:export #:main))
 (in-package #:open-orders.main)
 
-;; (deftype id () 'integer)
-
-;; (defclass/std person ()
-;;   ((first-name
-;;     last-name
-;;     email
-;;     phone
-;;     :type string)))
-
-;; (defclass/std customer ()
-;;   ((primary-contact :type id)
-;;    (name :type string)))
-
-;; (defclass/std line-item ()
-;;   ((customer :type id)
-;;    (order-number :type string)
-;;    )
-;;   )
-
 (defmacro do-sql (database &body body)
   (a:with-gensyms (query)
     `(multiple-value-bind (sql params) (sxql:yield ,@body)
@@ -80,6 +61,37 @@
   (defun column-definition->class-slot-definition (def)
     (list (first def) :type (column-definition->lisp-type def))))
 
+;; (defun generic-database-get-function (database table/class-name field/slot-names id)
+;;   (let* ((all-slots (cons 'id field/slot-names))
+;;          (query (do-sql database (sxql:select all-slots
+;;                                     (sxql:where (:= :id id))
+;;                                    (sxql:from table/class-name))))
+;;          (results (dbi:fetch query)))
+;;     results
+;;     )
+;;   )
+
+
+;; (defun make-generic-database-insert-function (name columns)
+;;   `(defun ,(a:symbolicate 'database-insert- name) (database id)
+;;      (do-sql database
+;;        (sxql:select ,(cons 'id (mapcar #'first columns))
+;;          (sxql:where (:= id id))
+;;          (sxql:)))
+;;      )
+;;   )
+
+(defun make-generic-database-get-function (name columns)
+  (let ((name name)
+        (columns columns))
+    (lambda (database id)
+      (dbi:do-sql database
+        (format nil "SELECT ~[~a~^,~] FROM ~a WHERE id = ~a"
+                (cons 'id (mapcar #'first columns))
+                name
+                id)))))
+  
+
 
 (defmacro deftable (name &body columns)
   "Columns should be in the form (name type). Types may be either a simple type or a
@@ -103,15 +115,16 @@
        ;; record sql
        (setf (gethash ',name *tables*)
              (make-instance 'table-definition
-                                             :raw-input-forms ',columns
-                                             :create-table-sql ,create-table-sql))
+                            :raw-input-forms ',columns
+                            :create-table-sql ,create-table-sql))
        
        ;; record class definition
        (defclass/std ,name () ,class-slots))))
 
 
 
-(defun update-table-schema (database table-name old-definition-forms new-definition-forms)
+(defun update-table-schema
+    (database table-name old-definition-forms new-definition-forms)
   "Updates an existing sql table to follow a new schema"
   (let ((to-delete
           (loop :for def :in old-definition-forms
