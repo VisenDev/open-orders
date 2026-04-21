@@ -112,6 +112,19 @@
       (let ((id (second (dbi:fetch query))))
         (setf (slot-value instance 'id) id)
         id))))
+
+(defun generic-database-set-function (name columns database instance)
+  (let ((set-slots nil))
+    (loop :for (name type) :in columns
+          :when (slot-boundp instance name)
+            :do (push name set-slots))
+    (let* ((set-values (mapcar (a:curry 'slot-value instance) set-slots))
+           (sql (format
+                 nil
+                 "UPDATE ~a SET ~{~a = ?~^,~} WHERE id = ~a;"
+                 name set-slots (slot-value instance 'id)))
+           (query (dbi:prepare database sql)))
+      (dbi:execute query set-values))))
   
 
 
@@ -145,13 +158,18 @@
 
        ;; create insert function
        (defun ,(a:symbolicate 'database-insert- name)
-         (database instance)
+           (database instance)
          (generic-database-insert-function ',name ',columns database instance))
 
        ;; create getter function
        (defun ,(a:symbolicate 'database-get- name)
-         (database instance)
-         (generic-database-get-function ',name ',columns database instance)))))
+           (database instance)
+         (generic-database-get-function ',name ',columns database instance))
+
+       ;; create setter function
+       (defun ,(a:symbolicate 'database-set- name)
+           (database instance)
+         (generic-database-set-function ',name ',columns database instance)))))
 
 
 
