@@ -22,6 +22,8 @@
 (defvar *active-tables* (make-hash-table)
   "The actually active definitions for sql tables")
 
+
+
 (eval-when (:compile-toplevel)
   (defun valid-sql-identifier-p (symbol)
     (every (lambda (ch) (or (char= #\_ ch)
@@ -81,7 +83,44 @@
 ;;      )
 ;;   )
 
+(defun update-table-schema (database name)
+  "Updates an existing sql table to follow a new schema"
+  (unless (eq (gethash name *active-tables*) (gethash name *tables*))
+    (if (not (gethash name *active-tables*)))
+    ;; TODO finish this code
+    
+    (let ((to-delete
+            (loop :for def :in old-definition-forms
+                  :unless (member def new-definition-forms :test 'equalp)
+                    :collect def))
+          (to-add 
+            (loop :for def :in new-definition-forms
+                  :unless (member def old-definition-forms :test 'equalp)
+                    :collect def)))
+      (format t "Deleting: ~a~%" to-delete)
+      (format t "Adding: ~a~%" to-add)
+      (loop :for (name type) :in to-delete
+            :do (do-sql database
+                  (sxql:alter-table table-name (sxql:drop-column name))))
+      (loop :for (name type) :in to-add
+            :do (do-sql database
+                  (sxql:alter-table table-name (sxql:add-column name :type type)))))))
+
+(defun ensure-tables-exist (database)
+  (maphash 
+   (lambda (k v)
+     (a:if-let (old (gethash k *active-tables*))
+       (progn
+         (update-table-schema database k (raw-input-forms old) (raw-input-forms v))
+         (setf (gethash k *active-tables*) v))
+       (progn
+         (do-sql database (sxql:drop-table k :if-exists t))
+         (do-sql database (create-table-sql v))
+         (setf (gethash k *active-tables*) v))))
+   *tables*))
+
 (defun generic-database-get-function (name columns database id)
+  (ensure-tables-exist database)
   (let* ((sql (format nil "SELECT ~{~a~^,~} FROM ~a WHERE id = ~a;"
                       (cons 'id (mapcar #'first columns))
                       name
@@ -97,6 +136,10 @@
 
 (defun generic-database-insert-function (name columns database instance)
   "Returns the id of the inserted instance"
+  (update-table-schema database name
+                       (ignore-errors (raw-input-forms (gethash name *active-tables*)))
+                       (ignore-errors (raw-input-forms (gethash name *tables*))))
+  (setf (gethash name *active-tables*) (gethash name *tables*))
   (assert (or (not (slot-boundp instance 'id))
               (null (id instance))))
   (let ((set-slots nil))
@@ -114,6 +157,7 @@
         id))))
 
 (defun generic-database-set-function (name columns database instance)
+  (ensure-tables-exist database)
   (let ((set-slots nil))
     (loop :for (name type) :in columns
           :when (slot-boundp instance name)
@@ -173,42 +217,26 @@
 
 
 
-(defun update-table-schema
-    (database table-name old-definition-forms new-definition-forms)
-  "Updates an existing sql table to follow a new schema"
-  (let ((to-delete
-          (loop :for def :in old-definition-forms
-                :unless (member def new-definition-forms :test 'equalp)
-                  :collect def))
-        (to-add 
-          (loop :for def :in new-definition-forms
-                :unless (member def old-definition-forms :test 'equalp)
-                  :collect def)))
-    (loop :for (name type) :in to-delete
-          :do (do-sql database
-                (sxql:alter-table table-name (sxql:drop-column name))))
-    (loop :for (name type) :in to-add
-          :do (do-sql database
-                (sxql:alter-table table-name (sxql:add-column name :type `',type))))))
 
-(defun ensure-tables-exist (database)
-  (maphash 
-   (lambda (k v)
-     (a:if-let (old (gethash k *active-tables*))
-       (progn
-         (update-table-schema database k (raw-input-forms old) (raw-input-forms v))
-         (setf (gethash k *active-tables*) v))
-       (progn
-         (do-sql database (sxql:drop-table k :if-exists t))
-         (do-sql database (create-table-sql v)))))
-   *tables*))
+
+(defun %nuke-tables (database)
+  "Drops all database tables and clears the various tables variables"
+  (flet ((drop-table (key _)
+           (declare (ignore _))
+           (format t "Dropped table ~a~%" key)
+           (do-sql database (sxql:drop-table key :if-exists t))))
+    (maphash #'drop-table *active-tables*)
+    (maphash #'drop-table *tables*)
+    (setf *active-tables* (make-hash-table))
+    (setf *tables* (make-hash-table))))
 
 (deftable person
   (first_name string)
   (last_name string)
   (notes string)
   (email string)
-  (phone string))
+  (phone string)
+  (fax string))
 
 (deftable customer
   (name string)
