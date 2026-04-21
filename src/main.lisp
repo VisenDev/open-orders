@@ -226,9 +226,7 @@
            (format t "Dropped table ~a~%" key)
            (do-sql database (sxql:drop-table key :if-exists t))))
     (maphash #'drop-table *active-tables*)
-    (maphash #'drop-table *tables*)
-    (setf *active-tables* (make-hash-table))
-    (setf *tables* (make-hash-table))))
+    (setf *active-tables* (make-hash-table))))
 
 (deftable person
   (first_name string)
