@@ -61,14 +61,38 @@
   (call-next-method))
 
 (defclass standard-sql-table ()
-  ((id :accessor id :primary-key t :auto-increment t :initform nil :initarg :id))
+  ((id :accessor id
+       :type integer
+       :primary-key t
+       :auto-increment t
+       :initform nil
+       :initarg :id))
   (:metaclass sql-table))
 
+(defun lisp-type->sql-type (type)
+  (case type
+    ((t) "BLOB")
+    (otherwise (symbol-name type))))
 
+(defgeneric slot-definition-sql (slotd))
+(defmethod slot-definition-sql ((slotd sql-table-effective-slot-definition))
+  (concatenate 'string (symbol-name (sql-name slotd)) " "
+               (lisp-type->sql-type (mop:slot-definition-type slotd))
+               (when (autoincrement slotd) " AUTO_INCREMENT")
+               (when (primary-key slotd) " PRIMARY KEY NOT NULL")
+               (a:when-let (ref (references slotd))
+                   (format nil " FOREIGN KEY REFERENCES ~a(~a)"
+                           (lisp-identifier->sql-identifier (first ref))
+                           (lisp-identifier->sql-identifier (second ref))))))
 
-(defgeneric create-table (class database))
-(defmethod create-table ((class sql-table) database)
-  (format nil "CREATE TABLE ~a" (sql-name class)))
+(defgeneric create-table-sql (class))
+(defmethod create-table-sql ((class sql-table))
+  (format nil "CREATE TABLE ~a (~{~a~^,~});" (sql-name class)
+          (mapcar #'slot-definition-sql (mop:class-slots class))))
+
+;; (defgeneric insert-into-table-sql (class))
+;; (defmethod insert-into-table-sql ((class sql-table))
+;;   (format nil "INSERT INTO ~a(~{~a~^,~}) VALUES(~{~a~^,~});"))
 
 
 (defclass person (standard-sql-table)
