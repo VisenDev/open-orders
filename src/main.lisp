@@ -81,15 +81,37 @@
 ;;      )
 ;;   )
 
-(defun make-generic-database-get-function (name columns)
-  (let ((name name)
-        (columns columns))
-    (lambda (database id)
-      (dbi:do-sql database
-        (format nil "SELECT ~[~a~^,~] FROM ~a WHERE id = ~a"
-                (cons 'id (mapcar #'first columns))
-                name
-                id)))))
+(defun generic-database-get-function (name columns database id)
+  (let* ((sql (format nil "SELECT ~{~a~^,~} FROM ~a WHERE id = ~a;"
+                      (cons 'id (mapcar #'first columns))
+                      name
+                      id))
+         (query (dbi:prepare database sql)))
+    (dbi:execute query)
+    (loop
+      :with result = (make-instance name)
+      :for (name type) :in (cons '(id integer) columns)
+      :for value :in (dbi:fetch query :format :values)
+      :do (setf (slot-value result name) value)
+      :finally (return result))))
+
+(defun generic-database-insert-function (name columns database instance)
+  "Returns the id of the inserted instance"
+  (assert (or (not (slot-boundp instance 'id))
+              (null (id instance))))
+  (let ((set-slots nil))
+    (loop :for (name type) :in columns
+          :when (slot-boundp instance name)
+            :do (push name set-slots))
+    (let* ((set-values (mapcar (a:curry 'slot-value instance) set-slots))
+           (sql (format nil "INSERT INTO ~a(~{~a~^,~}) VALUES(~{~a~^,~}) RETURNING id;"
+                          name set-slots
+                          (mapcar (constantly '?) set-values)))
+           (query (dbi:prepare database sql)))
+      (dbi:execute query set-values)
+      (let ((id (second (dbi:fetch query))))
+        (setf (slot-value instance 'id) id)
+        id))))
   
 
 
@@ -105,7 +127,7 @@
   (let* ((create-table-sql
            `(sxql:create-table ,name
                 ,(cons
-                  '(id :type 'integer :primary-key t :auto-increment t)
+                  '(id :type 'integer :primary-key t :autoincrement t :not-null t)
                   (mapcar #'column-definition->sql-column-definition columns))
               ,@(remove nil (mapcar #'column-definition->sql-option columns))))
          (class-slots
@@ -119,7 +141,17 @@
                             :create-table-sql ,create-table-sql))
        
        ;; record class definition
-       (defclass/std ,name () ,class-slots))))
+       (defclass/std ,name () ,class-slots)
+
+       ;; create insert function
+       (defun ,(a:symbolicate 'database-insert- name)
+         (database instance)
+         (generic-database-insert-function ',name ',columns database instance))
+
+       ;; create getter function
+       (defun ,(a:symbolicate 'database-get- name)
+         (database instance)
+         (generic-database-get-function ',name ',columns database instance)))))
 
 
 
@@ -152,7 +184,6 @@
          (do-sql database (sxql:drop-table k :if-exists t))
          (do-sql database (create-table-sql v)))))
    *tables*))
-
 
 (deftable person
   (first_name string)
