@@ -6,9 +6,9 @@
 (in-package #:open-orders.mop)
 
 (defun lisp-identifier->sql-identifier (ident)
-  (intern (map 'string (lambda (ch)
-                    (if (alphanumericp ch) ch #\_))
-                  (symbol-name ident))))
+  (map 'string (lambda (ch)
+                 (if (alphanumericp ch) ch #\_))
+       (symbol-name ident)))
 
 (defclass sql-table (standard-class)
   ((sql-name :accessor sql-name)))
@@ -60,6 +60,21 @@
 (defmethod mop:slot-definition-allocation ((slotd sql-table-direct-slot-definition))
   (call-next-method))
 
+(defgeneric slot-fingerprint (slotd))
+(defmethod slot-fingerprint ((slotd sql-table-effective-slot-definition))
+  (list (sql-name slotd)
+        (lisp-type->sql-type (mop:slot-definition-type slotd))
+        (primary-key slotd)
+        (references slotd)
+        (autoincrement slotd)))
+
+(defgeneric class-fingerprint (class))
+(defmethod class-fingerprint ((class sql-table))
+  (mop:ensure-finalized class)
+  (format
+   nil "~a"
+   (mapcar #'slot-fingerprint (mop:class-slots class))))
+
 (defclass standard-sql-table ()
   ((id :accessor id
        :type integer
@@ -76,7 +91,7 @@
 
 (defgeneric slot-definition-sql (slotd))
 (defmethod slot-definition-sql ((slotd sql-table-effective-slot-definition))
-  (concatenate 'string (symbol-name (sql-name slotd)) " "
+  (concatenate 'string (sql-name slotd) " "
                (lisp-type->sql-type (mop:slot-definition-type slotd))
                (when (autoincrement slotd) " AUTO_INCREMENT")
                (when (primary-key slotd) " PRIMARY KEY NOT NULL")
@@ -85,146 +100,163 @@
                            (lisp-identifier->sql-identifier (first ref))
                            (lisp-identifier->sql-identifier (second ref))))))
 
-(defun database-ensure-metadata-table-exists (database)
-  (dbi:do-sql database
-    "CREATE TABLE IF NOT EXISTS SCHEMA_METADATA(KEY STRING PRIMARY KEY, VALUE STRING);"))
+(defclass schema-metadata ()
+  ((name :type string :accessor name :primary-key t)
+   (hash :type integer :accessor hash)
+   (fingerprint :type string :accessor fingerprint))
+  (:metaclass sql-table))
 
-(defun database-lookup-table-metadata (database key)
-  (let* ((query (dbi:prepare database "SELECT VALUE FROM SCHEMA_METADATA WHERE KEY = ?;")))
-    (dbi:execute query (list (symbol-name key)))
-    (second (dbi:fetch query))))
+;; (defun database-ensure-metadata-table-exists (database)
+;;   (dbi:do-sql database
+;;     "CREATE TABLE IF NOT EXISTS SCHEMA_METADATA(KEY STRING PRIMARY KEY, VALUE STRING);"))
 
-(defun database-insert-table-metadata (database key value)
-  (dbi:do-sql database
-    "INSERT INTO SCHEMA_METADATA(KEY, VALUE) VALUES (?, ?);"
-    (list (symbol-name key) value)))
+;; (defun database-lookup-table-metadata (database key)
+;;   (let* ((query (dbi:prepare database "SELECT VALUE FROM SCHEMA_METADATA WHERE KEY = ?;")))
+;;     (dbi:execute query (list (symbol-name key)))
+;;     (second (dbi:fetch query))))
 
-(defun database-update-table-metadata (database key value)
-  (dbi:do-sql database
-    "UPDATE SCHEMA_METADATA SET VALUE = ? WHERE KEY = ?;"
-    (list (symbol-name key) value)))
+;; (defun database-insert-table-metadata (database key value)
+;;   (dbi:do-sql database
+;;     "INSERT INTO SCHEMA_METADATA(KEY, VALUE) VALUES (?, ?);"
+;;     (list (symbol-name key) value)))
+
+;; (defun database-update-table-metadata (database key value)
+;;   (dbi:do-sql database
+;;     "UPDATE SCHEMA_METADATA SET VALUE = ? WHERE KEY = ?;"
+;;     (list (symbol-name key) value)))
 
 ;; (defmethod marshal:class-persistent-slots ((class standard-object))
 ;;   (mop:ensure-finalized class)
 ;;   (mapcar #'mop:slot-definition-name (mop:class-slots class)))
 
-(defgeneric database-create-or-alter-table-if-needed (class database))
-(defmethod database-create-or-alter-table-if-needed ((class sql-table) database)
-  (let ((key (class-name class)))
-    (a:if-let (value (database-lookup-table-metadata database key))
-      (progn 
-        ;; check for difference
-        (loop :for slot :in value
-              :do )
-        )
+;; (defgeneric database-create-or-alter-table-if-needed (class database))
+;; (defmethod database-create-or-alter-table-if-needed ((class sql-table) database)
+;;   (let ((key (class-name class)))
+;;     (a:if-let (value (database-lookup-table-metadata database key))
+;;       (progn 
+;;         ;; check for difference
+;;         (loop :for slot :in value
+;;               :do )
+;;         )
 
-      (progn
-        ;; create table
-        (database-insert-table-metadata
-         database key
-         (format nil "~a" (marshal:marshal (mop:class-slots class)))
-         )
-        )
-      ))
-  )
-
+;;       (progn
+;;         ;; create table
+;;         (database-insert-table-metadata
+;;          database key
+;;          (format nil "~a" (marshal:marshal (mop:class-slots class)))
+;;          )
+;;         )
+;;       ))
+;;   )
 
 
 
 (defgeneric class-slots-sql (class))
 (defmethod class-slots-sql ((class sql-table))
+  "Returns a list of the slot definition sql for a class"
   (mapcar #'slot-definition-sql (mop:class-slots class)))
 
-(defgeneric create-table-sql (class))
-(defmethod create-table-sql ((class sql-table))
-  (format nil "CREATE TABLE ~a (~{~a~^,~});" (sql-name class)
+(defgeneric create-table-sql (class &key if-not-exists))
+(defmethod create-table-sql ((class sql-table) &key if-not-exists)
+  (mop:ensure-finalized class)
+  (format nil "CREATE TABLE ~a~a (~{~a~^, ~});"
+          (if if-not-exists "IF NOT EXISTS " "")
+          (sql-name class)
           (class-slots-sql class)))
 
-(defgeneric database-create-table (class database))
-(defmethod database-create-table ((class sql-table) database)
-  (dbi:do-sql database (create-table-sql class)))
+(defgeneric drop-table-sql (class &key if-exists))
+(defmethod drop-table-sql ((class sql-table) &key if-exists)
+  (mop:ensure-finalized class)
+  (format nil "DROP TABLE ~a~a;" (if if-exists "IF EXISTS " "") (sql-name class)))
 
-(defgeneric database-update-table-if-needed (class database class-slots-sql))
-(defmethod database-update-table-if-needed ((class sql-table) database
-                                            existing-class-slots-sql)
-  (unless (equalp (class-slots-sql class) existing-class-slots-sql)
-    (loop :for )
-    ))
+(defgeneric database-create-table (class database &key if-not-exists))
+(defmethod database-create-table ((class sql-table) database &key if-not-exists)
+  (dbi:do-sql database (create-table-sql class :if-not-exists if-not-exists)))
 
-(defgeneric class-primary-key-slot-name (class))
-(defmethod class-primary-key-slot-name ((class sql-table))
-  (loop :for slot :in (mop:class-slots class)
-        :when (primary-key slot)
-          :return (mop:slot-definition-name slot)))
+(defgeneric database-drop-table (class database &key if-exists))
+(defmethod database-drop-table ((class sql-table) database &key if-exists)
+  (dbi:do-sql database (drop-table-sql class :if-exists if-exists)))
 
-(defgeneric database-insert (class instance database))
-(defmethod database-insert ((class sql-table) instance database)
-  
-  
-  (let ((primary-slot (class-primary-key-slot-name class)))
-    (when (and (slot-boundp instance primary-slot)
-               (slot-value instance primary-slot))
-      (error "This instance already has a bound primary key"))
+;; (defgeneric database-update-table-if-needed (class database class-slots-sql))
+;; (defmethod database-update-table-if-needed ((class sql-table) database
+;;                                             existing-class-slots-sql)
+;;   (unless (equalp (class-slots-sql class) existing-class-slots-sql)
+;;     (loop :for )
+;;     ))
 
-    (let* ((slots (mop:class-slots class))
-           (saved-slots (loop :for slot :in slots
-                              :for name = (mop:slot-definition-name slot)
-                              :when (and (slot-boundp instance name)
-                                         (not (eq name primary-slot)))
-                                :collect slot)) )
-      (multiple-value-bind (sql params)
-          (sxql:insert-into
-              (sql-name class)
-            (mapcar #'sql-name saved-slots)
-            (mapcar (a:curry #'slot-value instance)
-                    (mapcar #'mop:slot-definition-name saved-slots)))
-        (dbi:do-sql database sql params)))))
-
-(defgeneric save-instance-of (class instance database))
-(defmethod save-instance-of ((class sql-table) instance database)
-
-  ;; TODO create a utility function to get the primary key of a class
-  (let ((primary-key-slot (mop:slot-definition-name
-                           (first
-                            (remove-if-not #'primary-key (mop:class-slots class))))))
-    (if primary-key-slot
-        t
-
-        ;; else
-        (multiple-value-bind (sql-names slot-names)
-            (loop :for slot :in (mop:class-slots class)
-                  :for name = (mop:slot-definition-name slot)
-                  :when (slot-boundp instance name)
-                    :collect (sql-name slot) :into sql-names
-                    :and :collect name :into slot-names
-                  :finally (return (values sql-names slot-names)))
-          (multiple-value-bind (sql data)
-              (sxql:yield (sxql:insert-into (sql-name class)
-                            sql-names
-                            (mapcar (a:curry #'slot-value instance) slot-names)))
-            (dbi:do-sql database sql data))))))
-
-(defun save-instance (instance database)
-  ()
-  )
-
-;; (defgeneric insert-into-table-sql (class))
-;; (defmethod insert-into-table-sql ((class sql-table))
-;;   (format nil "INSERT INTO ~a(~{~a~^,~}) VALUES(~{~a~^,~});"))
-
-
-(defclass person (standard-sql-table)
-  ((first-name :accessor first-name :initarg :first-name)
-   (last-name :accessor last-name :initarg :last-name)
-   (email :accessor email)
-   (phone :accessor phone))
-  (:metaclass sql-table))
-
-(defclass company (standard-sql-table)
-  ((primary-contact :accessor primary-contact :references (person id)))
-  (:metaclass sql-table))
-
-
-(defparameter *bob-jones* (make-instance 'company))
-
-(print (references (second (mop:class-slots (class-of *person*)))))
+;;(defgeneric class-primary-key-slot-name (class))
+;;(defmethod class-primary-key-slot-name ((class sql-table))
+;;  (loop :for slot :in (mop:class-slots class)
+;;        :when (primary-key slot)
+;;          :return (mop:slot-definition-name slot)))
+;;
+;;(defgeneric database-insert (class instance database))
+;;(defmethod database-insert ((class sql-table) instance database)
+;;  
+;;  (let ((primary-slot (class-primary-key-slot-name class)))
+;;    (when (and (slot-boundp instance primary-slot)
+;;               (slot-value instance primary-slot))
+;;      (error "This instance already has a bound primary key"))
+;;
+;;    (let* ((slots (mop:class-slots class))
+;;           (saved-slots (loop :for slot :in slots
+;;                              :for name = (mop:slot-definition-name slot)
+;;                              :when (and (slot-boundp instance name)
+;;                                         (not (eq name primary-slot)))
+;;                                :collect slot)) )
+;;      (multiple-value-bind (sql params)
+;;          (sxql:insert-into
+;;              (sql-name class)
+;;            (mapcar #'sql-name saved-slots)
+;;            (mapcar (a:curry #'slot-value instance)
+;;                    (mapcar #'mop:slot-definition-name saved-slots)))
+;;        (dbi:do-sql database sql params)))))
+;;
+;;(defgeneric save-instance-of (class instance database))
+;;(defmethod save-instance-of ((class sql-table) instance database)
+;;
+;;  ;; TODO create a utility function to get the primary key of a class
+;;  (let ((primary-key-slot (mop:slot-definition-name
+;;                           (first
+;;                            (remove-if-not #'primary-key (mop:class-slots class))))))
+;;    (if primary-key-slot
+;;        t
+;;
+;;        ;; else
+;;        (multiple-value-bind (sql-names slot-names)
+;;            (loop :for slot :in (mop:class-slots class)
+;;                  :for name = (mop:slot-definition-name slot)
+;;                  :when (slot-boundp instance name)
+;;                    :collect (sql-name slot) :into sql-names
+;;                    :and :collect name :into slot-names
+;;                  :finally (return (values sql-names slot-names)))
+;;          (multiple-value-bind (sql data)
+;;              (sxql:yield (sxql:insert-into (sql-name class)
+;;                            sql-names
+;;                            (mapcar (a:curry #'slot-value instance) slot-names)))
+;;            (dbi:do-sql database sql data))))))
+;;
+;;(defun save-instance (instance database)
+;;  ()
+;;  )
+;;
+;;;; (defgeneric insert-into-table-sql (class))
+;;;; (defmethod insert-into-table-sql ((class sql-table))
+;;;;   (format nil "INSERT INTO ~a(~{~a~^,~}) VALUES(~{~a~^,~});"))
+;;
+;;
+;;(defclass person (standard-sql-table)
+;;  ((first-name :accessor first-name :initarg :first-name)
+;;   (last-name :accessor last-name :initarg :last-name)
+;;   (email :accessor email)
+;;   (phone :accessor phone))
+;;  (:metaclass sql-table))
+;;
+;;(defclass company (standard-sql-table)
+;;  ((primary-contact :accessor primary-contact :references (person id)))
+;;  (:metaclass sql-table))
+;;
+;;
+;;(defparameter *bob-jones* (make-instance 'company))
+;;
+;;(print (references (second (mop:class-slots (class-of *person*)))))
