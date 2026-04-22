@@ -90,6 +90,34 @@
   (format nil "CREATE TABLE ~a (~{~a~^,~});" (sql-name class)
           (mapcar #'slot-definition-sql (mop:class-slots class))))
 
+(defgeneric save-instance-of (class instance database)
+(defmethod save-instance-of ((class sql-table) instance database)
+
+  ;; TODO create a utility function to get the primary key of a class
+  (let ((primary-key-slot (mop:slot-definition-name
+                           (first
+                            (remove-if-not #'primary-key (mop:class-slots class))))))
+    (if primary-key-slot
+        t
+
+        ;; else
+        (multiple-value-bind (sql-names slot-names)
+            (loop :for slot :in (mop:class-slots class)
+                  :for name = (mop:slot-definition-name slot)
+                  :when (slot-boundp instance name)
+                    :collect (sql-name slot) :into sql-names
+                    :and :collect name :into slot-names
+                  :finally (return (values sql-names slot-names)))
+          (multiple-value-bind (sql data)
+              (sxql:yield (sxql:insert-into (sql-name class)
+                            sql-names
+                            (mapcar (a:curry #'slot-value instance) slot-names)))
+            (dbi:do-sql database sql data))))))
+
+(defun save-instance (instance database)
+  ()
+  )
+
 ;; (defgeneric insert-into-table-sql (class))
 ;; (defmethod insert-into-table-sql ((class sql-table))
 ;;   (format nil "INSERT INTO ~a(~{~a~^,~}) VALUES(~{~a~^,~});"))
