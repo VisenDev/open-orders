@@ -219,27 +219,25 @@
             sql-names
             (mapcar (constantly #\?) sql-names))))
 
-;; (defmethod marshal:class-persistent-slots ((class standard-object))
-;;   (mop:ensure-finalized (class-of class))
-;;   (mapcar #'mop:slot-definition-name (mop:class-slots (class-of class)))
-;;   ;; (remove-if-not (a:curry #'slot-boundp class)
-;;   ;;                )
-;;   )
+(defmethod marshal:class-persistent-slots ((class standard-object))
+  (mop:ensure-finalized (class-of class))
+  (mapcar #'mop:slot-definition-name (mop:class-slots (class-of class))))
 
 (defun lisp-object->sql-object (type value)
   (assert (typep value type))
   (case type
     ((integer fixnum string boolean) value)
     ((symbol) (symbol-name value))
-    (otherwise (format nil "~s" value))))
+    (otherwise (format nil "~s" (marshal:marshal value)))))
 
 (defun sql-object->lisp-object (type value)
   (case type
     ((integer fixnum string boolean) value)
     ((symbol) (intern value))
     (otherwise
-     (let ((*read-eval* nil))
-       (read-from-string value)))))
+     (marshal:unmarshal
+      (let ((*read-eval* nil))
+        (read-from-string value))))))
 
 (defmethod convert-to-sql-params-to-insert ((class sql-table) instance)
   (loop :for slot :in (slots-to-insert class)
