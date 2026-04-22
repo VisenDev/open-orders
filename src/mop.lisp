@@ -11,11 +11,15 @@
        (symbol-name ident)))
 
 (defclass sql-table (standard-class)
-  ((sql-name :accessor sql-name)))
+  ((sql-name :accessor sql-name)
+   (schema-metadata :accessor schema-metadata :initform nil)))
 
+(defgeneric derive-schema-metadata (class))
 (defmethod mop:finalize-inheritance :after ((class sql-table))
   (setf (sql-name class)
-        (lisp-identifier->sql-identifier (class-name class))))
+        (lisp-identifier->sql-identifier (class-name class)))
+  (setf (schema-metadata class)
+        (derive-schema-metadata class)))
 
 (defclass sql-table-effective-slot-definition (mop:standard-effective-slot-definition)
   ((primary-key :accessor primary-key :initform nil)
@@ -101,10 +105,17 @@
                            (lisp-identifier->sql-identifier (second ref))))))
 
 (defclass schema-metadata ()
-  ((name :type string :accessor name :primary-key t)
-   (hash :type integer :accessor hash)
-   (fingerprint :type string :accessor fingerprint))
+  ((name :type string :accessor name :primary-key t :initarg :name)
+   (hash :type integer :accessor hash :initarg :hash)
+   (fingerprint :type string :accessor fingerprint :initarg :fingerprint))
   (:metaclass sql-table))
+
+(defmethod derive-schema-metadata ((class sql-table))
+  (let ((fingerprint (class-fingerprint class)))
+    (make-instance 'schema-metadata
+                   :name (sql-name class)
+                   :fingerprint fingerprint
+                   :hash (sxhash fingerprint))))
 
 ;; (defun database-ensure-metadata-table-exists (database)
 ;;   (dbi:do-sql database
