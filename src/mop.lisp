@@ -5,21 +5,37 @@
                     (#:mop #:closer-mop)))
 (in-package #:open-orders.mop)
 
+(defun slot-value? (object slot &optional default)
+  (if (slot-boundp object slot)
+      (slot-value object slot)
+      default))
+
 (defun lisp-identifier->sql-identifier (ident)
   (map 'string (lambda (ch)
                  (if (alphanumericp ch) ch #\_))
        (symbol-name ident)))
 
+(defmethod derive-slots-to-insert ((class sql-table))
+  (remove-if #'autoincrement (mop:class-slots class)))
+
 (defclass sql-table (standard-class)
   ((sql-name :accessor sql-name)
-   (schema-metadata :accessor schema-metadata :initform nil)))
+   (schema-metadata :accessor schema-metadata :initform nil)
+   (primary-key-slot :accessor primary-key-slot :initform nil)
+   (slots-to-insert :accessor slots-to-insert)))
 
+(defgeneric find-primary-key-slot (class))
 (defgeneric derive-schema-metadata (class))
+
 (defmethod mop:finalize-inheritance :after ((class sql-table))
   (setf (sql-name class)
         (lisp-identifier->sql-identifier (class-name class)))
   (setf (schema-metadata class)
-        (derive-schema-metadata class)))
+        (derive-schema-metadata class))
+  (setf (primary-key-slot class)
+        (find-primary-key-slot class))
+  (setf (slots-to-insert class)
+        (derive-slots-to-insert class)))
 
 (defclass sql-table-effective-slot-definition (mop:standard-effective-slot-definition)
   ((primary-key :accessor primary-key :initform nil)
@@ -34,6 +50,11 @@
    (autoincrement :accessor autoincrement :initform nil
                   :initarg :autoincrement :initarg :auto-increment)
    ))
+
+(defmethod find-primary-key-slot ((class sql-table))
+  (loop :for slot :in (mop:class-slots class)
+        :when (primary-key slot)
+          :do (return-from find-primary-key-slot slot)))
 
 (defmethod mop:validate-superclass ((class sql-table) (superclass standard-class))
   t)
@@ -187,6 +208,64 @@
 (defgeneric database-drop-table (class database &key if-exists))
 (defmethod database-drop-table ((class sql-table) database &key if-exists)
   (dbi:do-sql database (drop-table-sql class :if-exists if-exists)))
+
+
+
+(defmethod insert-sql ((class sql-table) database instance)
+  (let* ((slots (slots-to-insert class))
+         (sql-names (mapcar #'sql-name slots)))
+    (format nil "INSERT INTO ~a(~{~a~^, ~}) VALUES (~{~a~^, ~});"
+            (sql-name class)
+            sql-names
+            (mapcar (constantly #\?) sql-names))))
+
+;; (defmethod marshal:class-persistent-slots ((class standard-object))
+;;   (mop:ensure-finalized (class-of class))
+;;   (mapcar #'mop:slot-definition-name (mop:class-slots (class-of class)))
+;;   ;; (remove-if-not (a:curry #'slot-boundp class)
+;;   ;;                )
+;;   )
+
+(defun lisp-object->sql-object (type value)
+  (assert (typep value type))
+  (case type
+    ((integer fixnum string boolean) value)
+    ((symbol) (symbol-name value))
+    (otherwise (format nil "~s" value))))
+
+(defun sql-object->lisp-object (type value)
+  (case type
+    ((integer fixnum string boolean) value)
+    ((symbol) (intern value))
+    (otherwise
+     (let ((*read-eval* nil))
+       (read-from-string value)))))
+
+(defmethod convert-to-sql-params-to-insert ((class sql-table) instance)
+  (loop :for slot :in (slots-to-insert class)
+        :for name = (mop:slot-definition-name slot)
+        :for type = (mop:slot-definition-type slot)
+        :collect
+        (case type
+          ((integer fixnum string boolean) (slot-value instance name))
+          ((symbol) (symbol-name (slot-value instance name)))
+          (otherwise (marshal:marshal (slot-value instance name))))))
+
+(defmethod database-insert-slots ((class sql-table) database instance slots)
+  (let ((slot-names (mapcar #'mop:slot-definition-name slots)))
+
+    )
+  )
+
+;;;;; WAIT A SECOND
+;;;;; IF A CLASS IS AUTO INCREMENT I KNOW WHETHER OR NOT TO INSERT THE KEY
+
+(defmethod database-insert ((class sql-table) database instance)
+  (let ((slots (mop:class-slots class)))
+    (a:when-let (p (primary-key-slot class))
+      (when (slot-value? instance (mop:slot-definition-name p))
+        (a:removef slots p))
+      (database-insert-slots class database instance slots))))
 
 ;; (defgeneric database-update-table-if-needed (class database class-slots-sql))
 ;; (defmethod database-update-table-if-needed ((class sql-table) database
