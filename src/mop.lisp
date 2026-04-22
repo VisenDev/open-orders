@@ -85,21 +85,71 @@
                            (lisp-identifier->sql-identifier (first ref))
                            (lisp-identifier->sql-identifier (second ref))))))
 
-(defparameter *create-keyvalue-table-sql*
-  "CREATE TABLE KEYVALUE(KEY STRING PRIMARY KEY NOT NULL, VALUE STRING);")
+(defun database-ensure-metadata-table-exists (database)
+  (dbi:do-sql database
+    "CREATE TABLE IF NOT EXISTS SCHEMA_METADATA(KEY STRING PRIMARY KEY, VALUE STRING);"))
 
-(defun database-create-keyvalue-table (database)
-  (ignore-errors
-   (dbi:do-sql database *create-keyvalue-table-sql*)))
+(defun database-lookup-table-metadata (database key)
+  (let* ((query (dbi:prepare database "SELECT VALUE FROM SCHEMA_METADATA WHERE KEY = ?;")))
+    (dbi:execute query (list (symbol-name key)))
+    (second (dbi:fetch query))))
+
+(defun database-insert-table-metadata (database key value)
+  (dbi:do-sql database
+    "INSERT INTO SCHEMA_METADATA(KEY, VALUE) VALUES (?, ?);"
+    (list (symbol-name key) value)))
+
+(defun database-update-table-metadata (database key value)
+  (dbi:do-sql database
+    "UPDATE SCHEMA_METADATA SET VALUE = ? WHERE KEY = ?;"
+    (list (symbol-name key) value)))
+
+;; (defmethod marshal:class-persistent-slots ((class standard-object))
+;;   (mop:ensure-finalized class)
+;;   (mapcar #'mop:slot-definition-name (mop:class-slots class)))
+
+(defgeneric database-create-or-alter-table-if-needed (class database))
+(defmethod database-create-or-alter-table-if-needed ((class sql-table) database)
+  (let ((key (class-name class)))
+    (a:if-let (value (database-lookup-table-metadata database key))
+      (progn 
+        ;; check for difference
+        (loop :for slot :in value
+              :do )
+        )
+
+      (progn
+        ;; create table
+        (database-insert-table-metadata
+         database key
+         (format nil "~a" (marshal:marshal (mop:class-slots class)))
+         )
+        )
+      ))
+  )
+
+
+
+
+(defgeneric class-slots-sql (class))
+(defmethod class-slots-sql ((class sql-table))
+  (mapcar #'slot-definition-sql (mop:class-slots class)))
 
 (defgeneric create-table-sql (class))
 (defmethod create-table-sql ((class sql-table))
   (format nil "CREATE TABLE ~a (~{~a~^,~});" (sql-name class)
-          (mapcar #'slot-definition-sql (mop:class-slots class))))
+          (class-slots-sql class)))
 
 (defgeneric database-create-table (class database))
 (defmethod database-create-table ((class sql-table) database)
   (dbi:do-sql database (create-table-sql class)))
+
+(defgeneric database-update-table-if-needed (class database class-slots-sql))
+(defmethod database-update-table-if-needed ((class sql-table) database
+                                            existing-class-slots-sql)
+  (unless (equalp (class-slots-sql class) existing-class-slots-sql)
+    (loop :for )
+    ))
 
 (defgeneric class-primary-key-slot-name (class))
 (defmethod class-primary-key-slot-name ((class sql-table))
@@ -107,8 +157,10 @@
         :when (primary-key slot)
           :return (mop:slot-definition-name slot)))
 
-(defgeneric database-into-into (class instance database))
-(defmethod database-insert-into ((class sql-table) instance database)
+(defgeneric database-insert (class instance database))
+(defmethod database-insert ((class sql-table) instance database)
+  
+  
   (let ((primary-slot (class-primary-key-slot-name class)))
     (when (and (slot-boundp instance primary-slot)
                (slot-value instance primary-slot))
