@@ -71,7 +71,7 @@
 
 (defun lisp-type->sql-type (type)
   (case type
-    ((t) "BLOB")
+    ((t) "STRING")
     (otherwise (symbol-name type))))
 
 (defgeneric slot-definition-sql (slotd))
@@ -85,12 +85,50 @@
                            (lisp-identifier->sql-identifier (first ref))
                            (lisp-identifier->sql-identifier (second ref))))))
 
+(defparameter *create-keyvalue-table-sql*
+  "CREATE TABLE KEYVALUE(KEY STRING PRIMARY KEY NOT NULL, VALUE STRING);")
+
+(defun database-create-keyvalue-table (database)
+  (ignore-errors
+   (dbi:do-sql database *create-keyvalue-table-sql*)))
+
 (defgeneric create-table-sql (class))
 (defmethod create-table-sql ((class sql-table))
   (format nil "CREATE TABLE ~a (~{~a~^,~});" (sql-name class)
           (mapcar #'slot-definition-sql (mop:class-slots class))))
 
-(defgeneric save-instance-of (class instance database)
+(defgeneric database-create-table (class database))
+(defmethod database-create-table ((class sql-table) database)
+  (dbi:do-sql database (create-table-sql class)))
+
+(defgeneric class-primary-key-slot-name (class))
+(defmethod class-primary-key-slot-name ((class sql-table))
+  (loop :for slot :in (mop:class-slots class)
+        :when (primary-key slot)
+          :return (mop:slot-definition-name slot)))
+
+(defgeneric database-into-into (class instance database))
+(defmethod database-insert-into ((class sql-table) instance database)
+  (let ((primary-slot (class-primary-key-slot-name class)))
+    (when (and (slot-boundp instance primary-slot)
+               (slot-value instance primary-slot))
+      (error "This instance already has a bound primary key"))
+
+    (let* ((slots (mop:class-slots class))
+           (saved-slots (loop :for slot :in slots
+                              :for name = (mop:slot-definition-name slot)
+                              :when (and (slot-boundp instance name)
+                                         (not (eq name primary-slot)))
+                                :collect slot)) )
+      (multiple-value-bind (sql params)
+          (sxql:insert-into
+              (sql-name class)
+            (mapcar #'sql-name saved-slots)
+            (mapcar (a:curry #'slot-value instance)
+                    (mapcar #'mop:slot-definition-name saved-slots)))
+        (dbi:do-sql database sql params)))))
+
+(defgeneric save-instance-of (class instance database))
 (defmethod save-instance-of ((class sql-table) instance database)
 
   ;; TODO create a utility function to get the primary key of a class
@@ -124,8 +162,8 @@
 
 
 (defclass person (standard-sql-table)
-  ((first-name :accessor first-name)
-   (last-name :accessor last-name)
+  ((first-name :accessor first-name :initarg :first-name)
+   (last-name :accessor last-name :initarg :last-name)
    (email :accessor email)
    (phone :accessor phone))
   (:metaclass sql-table))
