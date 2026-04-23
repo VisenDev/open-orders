@@ -201,17 +201,18 @@
   (mop:ensure-finalized class)
   (format nil "DROP TABLE ~a~a;" (if if-exists "IF EXISTS " "") (sql-name class)))
 
-(defgeneric database-create-table (class database &key if-not-exists))
-(defmethod database-create-table ((class sql-table) database &key if-not-exists)
-  (dbi:do-sql database (create-table-sql class :if-not-exists if-not-exists)))
-
-(defgeneric database-drop-table (class database &key if-exists))
-(defmethod database-drop-table ((class sql-table) database &key if-exists)
-  (dbi:do-sql database (drop-table-sql class :if-exists if-exists)))
+(defun database-create-table (database classname &key if-not-exists)
+  (dbi:do-sql database
+    (create-table-sql (find-class classname)
+                      :if-not-exists if-not-exists)))
 
 
+(defun database-drop-table (database classname &key if-exists)
+  (dbi:do-sql database (drop-table-sql (find-class classname)
+                                       :if-exists if-exists)))
 
-(defmethod insert-sql ((class sql-table) database instance)
+
+(defmethod insert-sql ((class sql-table))
   (let* ((slots (slots-to-insert class))
          (sql-names (mapcar #'sql-name slots)))
     (format nil "INSERT INTO ~a(~{~a~^, ~}) VALUES (~{~a~^, ~});"
@@ -224,7 +225,6 @@
   (mapcar #'mop:slot-definition-name (mop:class-slots (class-of class))))
 
 (defun lisp-object->sql-object (type value)
-  (assert (typep value type))
   (case type
     ((integer fixnum string boolean) value)
     ((symbol) (symbol-name value))
@@ -239,31 +239,44 @@
       (let ((*read-eval* nil))
         (read-from-string value))))))
 
-(defmethod convert-to-sql-params-to-insert ((class sql-table) instance)
+(defmethod collect-sql-objects-for-insert ((class sql-table) instance)
   (loop :for slot :in (slots-to-insert class)
-        :for name = (mop:slot-definition-name slot)
-        :for type = (mop:slot-definition-type slot)
-        :collect
-        (case type
-          ((integer fixnum string boolean) (slot-value instance name))
-          ((symbol) (symbol-name (slot-value instance name)))
-          (otherwise (marshal:marshal (slot-value instance name))))))
+        :collect (lisp-object->sql-object
+                  (mop:slot-definition-type slot)
+                  (slot-value? instance (mop:slot-definition-name slot)))))
 
-(defmethod database-insert-slots ((class sql-table) database instance slots)
-  (let ((slot-names (mapcar #'mop:slot-definition-name slots)))
+(defun database-insert (database instance)
+  (dbi:do-sql database
+    (insert-sql (class-of instance))
+    (collect-sql-objects-for-insert (class-of instance) instance)))
 
-    )
+(defmethod lookup-sql ((class sql-table) column-sql-name)
+  (format nil "SELECT ~{~a~^, ~} FROM ~a WHERE ~a = ?;"
+          (mapcar #'sql-name (mop:class-slots class))
+          (sql-name class)
+          column-sql-name))
+
+(defun database-lookup (database classname key &key column)
+  (let* ((class (find-class classname))
+         (columnname (if column
+                         (lisp-identifier->sql-identifier column)
+                         (sql-name (primary-key-slot class))))
+         (query (dbi:prepare database (lookup-sql class columnname))))
+    (values (dbi:fetch (dbi:execute query (list key))) query)))
+
+(defun database-update (database instance)
+  ;; TODO
   )
 
 ;;;;; WAIT A SECOND
 ;;;;; IF A CLASS IS AUTO INCREMENT I KNOW WHETHER OR NOT TO INSERT THE KEY
 
-(defmethod database-insert ((class sql-table) database instance)
-  (let ((slots (mop:class-slots class)))
-    (a:when-let (p (primary-key-slot class))
-      (when (slot-value? instance (mop:slot-definition-name p))
-        (a:removef slots p))
-      (database-insert-slots class database instance slots))))
+;; (defmethod database-insert ((class sql-table) database instance)
+;;   (let ((slots (mop:class-slots class)))
+;;     (a:when-let (p (primary-key-slot class))
+;;       (when (slot-value? instance (mop:slot-definition-name p))
+;;         (a:removef slots p))
+;;       (database-insert-slots class database instance slots))))
 
 ;; (defgeneric database-update-table-if-needed (class database class-slots-sql))
 ;; (defmethod database-update-table-if-needed ((class sql-table) database
