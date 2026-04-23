@@ -1,4 +1,4 @@
-(defpackage #:open-orders.mop
+(defpackage #:open-orders.db
   (:use #:cl)
   (:local-nicknames (#:a #:alexandria)
                     (#:mop #:closer-mop))
@@ -10,7 +10,7 @@
            #:database-update
            #:database-insert
            #:database-alter-table-schema-if-needed))
-(in-package #:open-orders.mop)
+(in-package #:open-orders.db)
 
 (declaim (optimize (debug 3)))
 

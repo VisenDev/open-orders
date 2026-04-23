@@ -11,10 +11,12 @@
                "sxql"
                "cl-dbi"
                "sqlite"
-               "uiop")
+               "uiop"
+               "cl-pass")
   :serial t
   :components ((:module "src"
-                :components ((:file "database")
+                :components ((:file "db")
+                             (:file "ui")
                              (:file "main")))))
 
 (defsystem "open-orders/executable"
