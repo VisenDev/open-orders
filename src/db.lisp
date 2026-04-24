@@ -9,7 +9,10 @@
            #:database-drop-table
            #:database-update
            #:database-insert
-           #:database-alter-table-schema-if-needed))
+           #:database-alter-table-schema-if-needed
+           #:standard-sql-table
+           #:id
+           #:notes))
 (in-package #:open-orders.db)
 
 (declaim (optimize (debug 3)))
@@ -121,7 +124,11 @@
        :primary-key t
        :auto-increment t
        :initform nil
-       :initarg :id))
+       :initarg :id)
+   (notes :accessor notes
+          :type list
+          :initform nil
+          :initarg :notes))
   (:metaclass sql-table))
 
 (defun lisp-type->sql-type (type)

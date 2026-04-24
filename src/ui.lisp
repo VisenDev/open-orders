@@ -7,13 +7,9 @@
                     (#:gui #:clog-gui)
                     (#:auth #:clog-auth)
                     (#:db #:open-orders.db)
-                    (#:paths #:open-orders.paths)))
+                    (#:paths #:open-orders.paths)
+                    (#:tbl #:open-orders.tables)))
 (in-package #:open-orders.ui)
-
-(defclass/std user ()
-  ((name :primary-key t :type string)
-   (hash))
-  (:metaclass db:sql-table))
 
 (defclass/std connection ()
   ((auth db menu)))
@@ -23,22 +19,11 @@
 ;;   (crypto:byte-array-to-hex-string
 ;;    (crypto:random-data 16)))
 
-(defun create-new-user (database name password)
-  (db:database-insert database
-                      (make-instance 'user
-                                     :name name
-                                     :hash (cl-pass:hash password))))
 
-(defun update-user-password (database name password)
-  (db:database-update database
-                      (make-instance 'user
-                                     :name name
-                                     :hash (cl-pass:hash password))))
 
 (defun on-logged-in-screen (body conn)
   (clog:destroy-children body)
-  (clog:create-p body :content "Logged in :)")
-  )
+  (clog:create-p body :content "Logged in :)"))
 
 (defun on-login-screen (body conn)
   (let* ((div (clog:create-div body :style "padding:10px;"))
@@ -55,9 +40,9 @@
      (lambda (obj)
        (declare (ignorable obj))
        (let ((user-record
-               (db:database-lookup (db conn) 'user (clog:value user))))
+               (db:database-lookup (db conn) 'tbl:user (clog:value user))))
          (if user-record
-             (if (cl-pass:check-password (clog:value pass) (hash user-record))
+             (if (cl-pass:check-password (clog:value pass) (tbl:hash user-record))
                  (on-logged-in-screen body conn)
                  (clog:alert (clog:window body) "Invalid Password"))
              (clog:alert (clog:window body) "Invalid Username")))))))
