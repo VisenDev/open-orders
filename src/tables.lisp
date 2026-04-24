@@ -22,7 +22,12 @@
            #:email
            #:phone
            ;; TODO add exports for the other things
-           ))
+           ;; WOAH I CAN USE SLIME-EXPORT-CLASS FOR THIS!!!
+           #:purchase-order
+           #:line-item
+           #:ship-terms
+           #:billing-terms
+           #:ship-notes))
 (in-package #:open-orders.tables)
 
 (defclass/std user ()
