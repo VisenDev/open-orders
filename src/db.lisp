@@ -37,7 +37,9 @@
    (slots-to-insert :accessor slots-to-insert)))
 
 (defmethod derive-slots-to-insert ((class sql-table))
-  (remove-if #'autoincrement (mop:class-slots class)))
+  (remove-if (lambda (slot)
+               (autoincrement slot))
+             (mop:class-slots class)))
 
 (defgeneric find-primary-key-slot (class))
 (defgeneric derive-schema-metadata (class))
@@ -63,7 +65,7 @@
                 :initarg :primary-key :initarg :primarykey)
    (references :accessor references :initform nil :initarg :references)
    (autoincrement :accessor autoincrement :initform nil
-                  :initarg :autoincrement :initarg :auto-increment)
+                  :initarg :autoincrement)
    ))
 
 (defmethod find-primary-key-slot ((class sql-table))
@@ -131,7 +133,7 @@
   ((id :accessor id
        :type integer
        :primary-key t
-       :auto-increment t
+       :autoincrement t
        :initform nil
        :initarg :id)
    (notes :accessor notes
@@ -149,12 +151,12 @@
 (defmethod slot-definition-sql ((slotd sql-table-effective-slot-definition))
   (concatenate 'string (sql-name slotd) " "
                (lisp-type->sql-type (mop:slot-definition-type slotd))
-               (when (autoincrement slotd) " AUTO_INCREMENT")
-               (when (primary-key slotd) " PRIMARY KEY NOT NULL")
+               (when (primary-key slotd) " PRIMARY KEY")
+               (when (autoincrement slotd) " AUTOINCREMENT")
                (a:when-let (ref (references slotd))
-                   (format nil " REFERENCES ~a(~a)"
-                           (lisp-identifier->sql-identifier (first ref))
-                           (lisp-identifier->sql-identifier (second ref))))))
+                 (format nil " REFERENCES ~a(~a)"
+                         (lisp-identifier->sql-identifier (first ref))
+                         (lisp-identifier->sql-identifier (second ref))))))
 
 (defclass schema-metadata ()
   ((name :type string :accessor name :primary-key t :initarg :name)
@@ -205,11 +207,14 @@
 
 (defmethod insert-sql ((class sql-table))
   (let* ((slots (slots-to-insert class))
-         (sql-names (mapcar #'sql-name slots)))
-    (format nil "INSERT INTO ~a(~{~a~^, ~}) VALUES (~{~a~^, ~});"
+         (sql-names (mapcar #'sql-name slots))
+         (primary-key (primary-key-slot class)))
+    (format nil "INSERT INTO ~a(~{~a~^, ~}) VALUES (~{~a~^, ~}) ~a;"
             (sql-name class)
             sql-names
-            (mapcar (constantly #\?) sql-names))))
+            (mapcar (constantly #\?) sql-names)
+            (if primary-key
+                (format nil "RETURNING ~a" (sql-name primary-key)) ""))))
 
 ;; (defmethod marshal:class-persistent-slots ((class standard-object))
 ;;   (mop:ensure-finalized (class-of class))
@@ -243,9 +248,16 @@
   (collect-sql-objects class instance (mop:class-slots class)))
 
 (defun database-insert (database instance)
-  (dbi:do-sql database
-    (insert-sql (class-of instance))
-    (collect-sql-objects-for-insert (class-of instance) instance)))
+  (let* ((query (dbi:prepare database (insert-sql (class-of instance)))))
+    (dbi:execute query (collect-sql-objects-for-insert (class-of instance) instance))
+    (unless (zerop (dbi:query-row-count query))
+      (let ((primary-key-value
+              (first (dbi:fetch query :format :values))))
+        (a:when-let (primary-key-slot (primary-key-slot (class-of instance)))
+          (setf (slot-value instance (mop:slot-definition-name
+                                      primary-key-slot))
+                primary-key-value)
+          primary-key-value)))))
 
 (defmethod lookup-sql ((class sql-table) column-sql-name)
   (format nil "SELECT ~{~a~^, ~} FROM ~a WHERE ~a = ?;"

@@ -120,3 +120,7 @@
      (unwind-protect
           (progn ,@body)
        (database-disconnect ,var))))
+
+(defun %nuke-tables (db)
+    (dolist (class (mop:class-direct-subclasses (find-class 'open-orders-table)))
+      (db:database-drop-table db (class-name class) :if-exists t)))

@@ -1,5 +1,5 @@
 (defpackage #:open-orders.ui
-  (:use #:cl)
+  (:use #:cl #:open-orders.utils)
   (:import-from #:defclass-std
                 #:defclass/std
                 #:class/std)
@@ -19,42 +19,127 @@
   (crypto:byte-array-to-hex-string
    (crypto:random-data 16)))
 
-(defun on-new-screen (body conn)
+(defun on-new-customer-screen (body conn)
   (clog:destroy-children body)
-  (clog:create-p body :content "Create new"))
+  (*let ((div (clog:create-div body :class "container"))
+         (header (clog:create-element div "nav"))
+         (header-list (clog:create-unordered-list header))
+         (back (clog:create-button (clog:create-list-item header-list)
+                                   :content "Back"
+                                   :class "outline"))
+         (form (clog:create-form div))
+         (name (clog:create-form-element
+                              form :text
+                              :label (clog:create-label
+                                      form
+                                      :content "Customer Name")))
+         (contact-first-name (clog:create-form-element
+                              form :text
+                              :label (clog:create-label
+                                      form
+                                      :content "Primary Contact First Name")))
+         (contact-last-name (clog:create-form-element
+                              form :text
+                              :label (clog:create-label
+                                      form
+                                      :content "Primary Contact Last Name")))
+         (contact-email (clog:create-form-element
+                         form :text
+                          :label (clog:create-label
+                                  form
+                                  :content "Primary Contact Email")))
+         (contact-phone (clog:create-form-element
+                          form :text
+                          :label (clog:create-label
+                                  form
+                                  :content "Primary Contact Phone")))
+         (_ (clog:create-br div))
+         (_notes-label (clog:create-p div :content "Notes:"))
+         (notes (clog:create-text-area div :rows 4 :name "Notes"))
+         (save (clog:create-button div :content "Save")))
+
+    (labels ((collect-person-data ()
+               (let ((person (make-instance 'tbl:person)))
+                 (setf (tbl:first-name person) (clog:value contact-first-name))
+                 (setf (tbl:last-name person) (clog:value contact-last-name))
+                 (setf (tbl:email person) (clog:value contact-email))
+                 (setf (tbl:phone person) (clog:value contact-phone))
+
+                 person)))
+      (clog:set-on-click
+       back
+       (fn (obj)
+         ;;; TODO maybe cache the fields so partially filled in data isn't lost
+         ;;
+         ;; (setf (clog:storage-element (clog:window body) :local "NewCustomerCache")
+         ;;       (list (collect-person-data )))
+         (on-logged-in-screen body conn)))
+      (clog:set-on-click
+       save
+       (fn (obj)
+         (let ((person (db:database-insert (db conn) (collect-person-data)))
+               (customer (make-instance 'tbl:customer)))
+
+           ;;; TODO figure out how to properly extract textarea value, as the below
+           ;;; call currently returns null
+           ;; (setf (db:notes customer) (clog:textarea-value notes "Notes"))
+           (setf (tbl:primary-contact customer) person)
+           (setf (tbl:name customer) (clog:value name))
+           (db:database-insert (db conn) customer))
+         (on-logged-in-screen body conn))))))
+
+;; (defun on-new-screen (body conn)
+;;   (clog:destroy-children body)
+;;   (let* ((div (clog:create-div body :class "container"))
+;;          (back (clog:create-button div :content "Back"))
+;;          (new-customer (clog:create-button (clog:create-div div)
+;;                                            :content "New Customer"))
+;;          (new-material (clog:create-button (clog:create-div div)
+;;                                            :content "New Material"))
+;;          (new-order (clog:create-button (clog:create-div div)
+;;                                         :content "New Purchase Order")))
+;;     (clog:set-on-click back (lambda (obj)
+;;                               (declare (ignore obj))
+;;                               (on-logged-in-screen body conn)))
+;;     (clog:set-on-click  new-customer (lambda (obj)
+;;                                        (declare (ignore obj))
+;;                                        (on-new-customer-screen body conn))))
+;;   (clog:create-p body :content "Create new"))
+
+
 
 (defun menu-bar-generate (body conn)
-  (let* ((div (clog:create-div body :class "container"))
+  (*let ((div (clog:create-div body :class "container"))
          (header (clog:create-element div "nav"))
          (company-list (clog:create-unordered-list header))
          (company (clog:create-button (clog:create-list-item company-list)
-                                 :content "American Campro"
-                                 :class "outline"))
+                                      :content "American Campro"
+                                      :class "outline"))
          (header-list (clog:create-unordered-list header))
-         (new (clog:create-button (clog:create-list-item header-list) :content "New"
-                                  :class "outline"))
+         (new-dropdown (clog:create-details (clog:create-list-item header-list)
+                                            :class "dropdown"))
+         (_summary (clog:create-summary new-dropdown :content "New"))
+         (new-dropdown-list (clog:create-unordered-list new-dropdown))
+         (new-customer-button (clog:create-button (clog:create-list-item new-dropdown-list )
+                                                  :content "New Customer"
+                                                  :class "outline"))
          (open-orders (clog:create-button (clog:create-list-item header-list)
-                                     :class "outline"
-                                     :content "Open Orders"))
+                                          :class "outline"
+                                          :content "Open Orders"))
          (logout (clog:create-button (clog:create-list-item header-list)
                                      :class "outline"
                                      :content "Logout")))
-    (declare (ignorable company))
-    (clog:set-on-click new
-                       (lambda (obj)
-                         (declare (ignore obj))
-                         (on-new-screen body conn)))
+    (clog:set-on-click new-customer-button
+                       (fn (obj) (on-new-customer-screen body conn)))
     (clog:set-on-click open-orders
-                       (lambda (obj)
-                         (declare (ignore obj))
-                         (on-logged-in-screen body conn)))
+                       (fn (obj) (on-logged-in-screen body conn)))
     (clog:set-on-click logout
                        (lambda (obj)
+                         (declare (ignore obj))
                          (clog-auth:remove-authentication-token body)
                          (on-login-screen body conn)))
     (clog:set-on-click company
-                       (lambda (obj)
-                         (declare (ignorable obj))))))
+                       (fn (obj) (error "TODO")))))
 
 (defun on-logged-in-screen (body conn)
   (clog:destroy-children body)
