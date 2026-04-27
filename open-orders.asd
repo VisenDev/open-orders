@@ -15,7 +15,9 @@
                "cl-pass")
   :serial t
   :components ((:module "src"
-                :components ((:file "db")
+                :components ((:file "paths")
+                             (:file "db")
+                             (:file "tables")
                              (:file "ui")
                              (:file "main")))))
 

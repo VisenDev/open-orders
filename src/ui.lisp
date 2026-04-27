@@ -19,10 +19,22 @@
 ;;   (crypto:byte-array-to-hex-string
 ;;    (crypto:random-data 16)))
 
+(defun on-new-screen (body conn)
+  (clog:destroy-children body)
+  (clog:create-p body :content "Create new")
+  )
 
+(defun menu-bar-generate (body conn)
+  (let* ((div (clog:create-div body))
+         (new (clog:create-button div :content "New")))
+    (clog:set-on-click new
+                       (lambda (obj)
+                         (declare (ignore obj))
+                         (on-new-screen body conn)))))
 
 (defun on-logged-in-screen (body conn)
   (clog:destroy-children body)
+  (menu-bar-generate body conn)
   (clog:create-p body :content "Logged in :)"))
 
 (defun on-login-screen (body conn)
@@ -40,7 +52,9 @@
      (lambda (obj)
        (declare (ignorable obj))
        (let ((user-record
-               (db:database-lookup (db conn) 'tbl:user (clog:value user))))
+               (handler-case
+                   (db:database-lookup (db conn) 'tbl:user (clog:value user))
+                 (error (e) (clog:alert (clog:window body) e)))))
          (if user-record
              (if (cl-pass:check-password (clog:value pass) (tbl:hash user-record))
                  (on-logged-in-screen body conn)
@@ -50,9 +64,8 @@
 (defun on-new-window (body)
   (let ((conn (make-instance 'connection)))
 
-    (setf (db conn) (dbi:connect :sqlite3 :database-name paths:*db-path*))
-    (db:database-initialize (db conn))
-    (db:database-create-table (db conn) 'user :if-not-exists t)
+    (setf (db conn) (tbl:database-connect))
+
     (clog:load-css (clog:html-document body)
                    "https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css")
 
@@ -61,12 +74,11 @@
     (clog:enable-clog-popup)              ; To allow browser popups
     (clog:add-class body "w3-grey")
 
-    (on-login-screen body conn))
+    (on-login-screen body conn)
 
-  ;; (setf *menu* (create-toplevel-menu body))
-
-  ;; Block until body has been closed
-  ;; (run body)
+    ;; Block until body has been closed
+    (clog:run body)
+    (tbl:database-disconnect (db conn)))
   
   )
 

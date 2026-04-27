@@ -12,7 +12,8 @@
            #:database-alter-table-schema-if-needed
            #:standard-sql-table
            #:id
-           #:notes))
+           #:notes
+           #:list-of-instances))
 (in-package #:open-orders.db)
 
 (declaim (optimize (debug 3)))
@@ -28,7 +29,9 @@
        (symbol-name ident)))
 
 (defclass sql-table (standard-class)
-  ((sql-name :accessor sql-name)
+  ((list-of-instances :accessor list-of-instances :allocation :class
+                      :initform nil)
+   (sql-name :accessor sql-name)
    (schema-metadata :accessor schema-metadata :initform nil)
    (primary-key-slot :accessor primary-key-slot :initform nil)
    (slots-to-insert :accessor slots-to-insert)))
@@ -69,6 +72,12 @@
           :do (return-from find-primary-key-slot slot)))
 
 (defmethod mop:validate-superclass ((class sql-table) (superclass standard-class))
+
+  ;; Note, putting this here because if I put it in finalize inheritance that
+  ;; doesn't get called necessarily during compilation
+  (pushnew (class-name class) (list-of-instances class))
+  (a:removef (list-of-instances class) nil)
+
   t)
 
 (defmethod mop:effective-slot-definition-class ((class sql-table) &rest initargs)
@@ -143,7 +152,7 @@
                (when (autoincrement slotd) " AUTO_INCREMENT")
                (when (primary-key slotd) " PRIMARY KEY NOT NULL")
                (a:when-let (ref (references slotd))
-                   (format nil " FOREIGN KEY REFERENCES ~a(~a)"
+                   (format nil " REFERENCES ~a(~a)"
                            (lisp-identifier->sql-identifier (first ref))
                            (lisp-identifier->sql-identifier (second ref))))))
 
