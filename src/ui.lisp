@@ -148,6 +148,7 @@
 
 (defun on-login-screen (body conn)
   (clog:destroy-children body)
+  (setf (clog:visiblep body) nil)
   (let* ((div (clog:create-div body :class "container"))
          (form (clog:create-form div :class "container"))
          (lu  (clog:create-label form :content "Username: "))
@@ -161,14 +162,20 @@
          (stay-logged-in (clog:create-form-element form :checkbox
                                                    :label stay-logged-in-label
                                                    :name "stay-logged-in"))
-         (login (clog:create-button div :content "Login" :style "margin-top:20px;")))
+         (login (clog:create-button div :content "Login" :style "margin-top:20px;"))
+         (msg (clog:create-p div :content "" :style "padding:10px;color:red;")))
     (declare (ignorable user pass _ login))
 
+    ;; If valid authentication token is found, go to logged in screen
     (a:when-let (tok (clog-auth:get-authentication-token body))
       (a:when-let (found-user
                    (db:database-lookup (db conn) 'tbl:user tok
                                        :column 'tbl:authentication-token)))
       (on-logged-in-screen body conn))
+
+    ;; Reset msg on keyboard input
+    (clog:set-on-key-down form (fn (obj event)
+                                 (setf (clog:inner-html msg) "")))
     
     (labels ((try-login (obj)
                (declare (ignorable obj))
@@ -176,28 +183,27 @@
                        (handler-case
                            (db:database-lookup (db conn) 'tbl:user (clog:value user))
                          (error (e) (clog:alert (clog:window body) e)))))
-                 (if user-record
-                     (if (cl-pass:check-password (clog:value pass) (tbl:hash user-record))
-                         (progn
-                           ;; auth token store/delete
-                           (if (clog:checkedp stay-logged-in)
-                               
-                               (let ((tok (authentication-token-create)))
-                                 (setf (tbl:authentication-token user-record) tok)
-                                 (setf (tbl:authentication-token-timestamp user-record)
-                                       (get-universal-time))
-                                 (db:database-update (db conn) user-record)
-                                 (clog-auth:store-authentication-token
-                                  body tok))
+                 (cond
+                   ((not user-record)
+                    (setf (clog:inner-html msg) "Invalid Username"))
+                   ((and user-record
+                         (cl-pass:check-password
+                          (clog:value pass) (tbl:hash user-record)))
+                    (if (not (clog:checkedp stay-logged-in))
+                        (clog-auth:remove-authentication-token body)
 
-                               ;; else remove auth token
-                               (clog-auth:remove-authentication-token body))
-
-                           ;; goto logged in screen
-                           (on-logged-in-screen body conn))
-                         
-                         (clog:alert (clog:window body) "Incorrect Password"))
-                     (clog:alert (clog:window body) "Invalid Username"))))
+                        ;;else 
+                        (let ((tok (authentication-token-create)))
+                          (setf (tbl:authentication-token user-record) tok)
+                          (setf (tbl:authentication-token-timestamp user-record)
+                                (get-universal-time))
+                          (db:database-update (db conn) user-record)
+                          (clog-auth:store-authentication-token
+                           body tok)))
+                    
+                    ;; goto logged in screen
+                    (on-logged-in-screen body conn))
+                   (t (setf (clog:content msg) "Incorrect Password")))))
              (handle-keydown (obj event)
                (a:when-let (key (getf event :key))
                  (when (equal key "Enter")
@@ -206,27 +212,44 @@
       (clog:set-on-key-down pass #'handle-keydown)
       (clog:set-on-key-down user #'handle-keydown)
       (clog:set-on-key-down login #'handle-keydown)
-      )))
+
+      ;; Finally render everything
+      (setf (clog:visiblep body) t))))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defvar *pico-css*
+    (format nil "<style>~a</style>"
+            (uiop:read-file-string
+             (asdf:system-relative-pathname
+              "open-orders" "static-files/pico.min.css")))))
 
 (defun on-new-window (body)
   (let ((conn (make-instance 'connection)))
 
-    (setf (db conn) (tbl:database-connect))
 
-    (clog:load-css (clog:html-document body)
-                   "https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css")
+
+    ;; (clog:load-css (clog:html-document body)
+    ;;                "https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css"
+    ;;                )
+
+    ;; Load css
+    (clog:create-child (clog:head-element (clog:html-document body))
+                       *pico-css*)
 
     (clog:set-html-on-close body "<script>close();</script>")
     (setf (clog:title (clog:html-document body)) "Overhead")
-    (clog:enable-clog-popup)              ; To allow browser popups
+    (clog:enable-clog-popup)            ; To allow browser popups
 
     (on-login-screen body conn)
 
+    ;; Then actually load the database so that loading the database doesn't
+    ;; lag the html rendering
+    (setf (db conn) (tbl:database-connect))
+
     ;; Block until body has been closed
     (clog:run body)
-    (tbl:database-disconnect (db conn)))
-  
-  )
+    (when (db conn)
+      (tbl:database-disconnect (db conn)))))
 
 
 (defun test ()

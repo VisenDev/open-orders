@@ -14,7 +14,9 @@
                "uiop"
                "cl-pass")
   :serial t
-  :components ((:module "src"
+  :components ((:module "static-files"
+                :components ((:static-file "pico.min.css")))
+               (:module "src"
                 :components ((:file "utils")
                              (:file "paths")
                              (:file "db")
