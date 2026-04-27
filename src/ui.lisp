@@ -111,10 +111,6 @@
 (defun menu-bar-generate (body conn)
   (*let ((div (clog:create-div body :class "container"))
          (header (clog:create-element div "nav"))
-         (company-list (clog:create-unordered-list header))
-         (company (clog:create-button (clog:create-list-item company-list)
-                                      :content "American Campro"
-                                      :class "outline"))
          (header-list (clog:create-unordered-list header))
          (new-dropdown (clog:create-details (clog:create-list-item header-list)
                                             :class "dropdown"))
@@ -137,9 +133,7 @@
                        (lambda (obj)
                          (declare (ignore obj))
                          (clog-auth:remove-authentication-token body)
-                         (on-login-screen body conn)))
-    (clog:set-on-click company
-                       (fn (obj) (error "TODO")))))
+                         (on-login-screen body conn)))))
 
 (defun on-logged-in-screen (body conn)
   (clog:destroy-children body)
@@ -149,7 +143,12 @@
 (defun on-login-screen (body conn)
   (clog:destroy-children body)
   (setf (clog:visiblep body) nil)
-  (let* ((div (clog:create-div body :class "container"))
+  (*let ((div (clog:create-div body :class "container"))
+         (header (clog:create-element div "nav"))
+         (_login-msg (clog:create-section (clog:create-list-item
+                                           (clog:create-unordered-list header))
+                                          :h1
+                                          :content "Login"))
          (form (clog:create-form div :class "container"))
          (lu  (clog:create-label form :content "Username: "))
          (user (clog:create-form-element form :string :label lu))
@@ -164,7 +163,6 @@
                                                    :name "stay-logged-in"))
          (login (clog:create-button div :content "Login" :style "margin-top:20px;"))
          (msg (clog:create-p div :content "" :style "padding:10px;color:red;")))
-    (declare (ignorable user pass _ login))
 
     ;; If valid authentication token is found, go to logged in screen
     (a:when-let (tok (clog-auth:get-authentication-token body))
@@ -224,27 +222,29 @@
               "open-orders" "static-files/pico.min.css")))))
 
 (defun on-new-window (body)
+  
   (let ((conn (make-instance 'connection)))
-
-
-
     ;; (clog:load-css (clog:html-document body)
     ;;                "https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css"
     ;;                )
+
 
     ;; Load css
     (clog:create-child (clog:head-element (clog:html-document body))
                        *pico-css*)
 
+
     (clog:set-html-on-close body "<script>close();</script>")
     (setf (clog:title (clog:html-document body)) "Overhead")
     (clog:enable-clog-popup)            ; To allow browser popups
 
-    (on-login-screen body conn)
+    ;; loading bar
+    (clog:create-child body "<div aria-busy=\"true\"/>")
 
-    ;; Then actually load the database so that loading the database doesn't
-    ;; lag the html rendering
+    ;; Note: this can be slow so maybe this call should be delayed til later
     (setf (db conn) (tbl:database-connect))
+
+    (on-login-screen body conn)
 
     ;; Block until body has been closed
     (clog:run body)

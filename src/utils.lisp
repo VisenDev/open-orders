@@ -4,7 +4,7 @@
            #:fn))
 (in-package #:open-orders.utils)
 
-(eval-when (:compile-toplevel)
+(eval-when (:compile-toplevel :load-toplevel :execute)
   (defun ignored-binding-p (binding)
     (and (listp binding)
          (char= #\_ (char (symbol-name (first binding)) 0)))))
