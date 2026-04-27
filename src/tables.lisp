@@ -1,4 +1,4 @@
-(uiop:define-package #:open-orders.tables
+(defpackage #:open-orders.tables
   (:use #:cl)
   (:import-from #:defclass-std
                 #:defclass/std
@@ -37,7 +37,9 @@
            #:categories
            #:with-database
            #:database-disconnect
-           #:database-connect))
+           #:database-connect
+           #:authentication-token
+           #:authentication-token-timestamp))
 (in-package #:open-orders.tables)
 
 
@@ -45,7 +47,8 @@
 
 (defclass/std user (open-orders-table)
   ((name :primary-key t :type string)
-   (hash))
+   (hash authentication-token :type string)
+   (authentication-token-timestamp :type integer))
   (:metaclass db:sql-table))
 
 (defun user-create-new (database name password)

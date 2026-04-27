@@ -6,9 +6,5 @@ main:
 	--eval '(uiop:quit)'
 
 clean:
-	trash **.fasl
-	trash open-orders
-	trash *.sqlite3
-	trash *.database
-
+	find . -type f -name '*.fasl' -exec trash {} \;
 
