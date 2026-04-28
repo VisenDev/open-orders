@@ -13,7 +13,8 @@
                "sqlite"
                "uiop"
                "cl-pass"
-               "lparallel")
+               "lparallel"
+               "trivial-types")
   :serial t
   :components ((:module "static-files"
                 :components ((:static-file "pico.min.css")))

@@ -109,19 +109,27 @@
 (defmethod mop:slot-definition-allocation ((slotd sql-table-direct-slot-definition))
   (call-next-method))
 
-(defgeneric slot-fingerprint (slotd))
-(defmethod slot-fingerprint ((slotd sql-table-effective-slot-definition))
-  (list (sql-name slotd)
-        (lisp-type->sql-type (mop:slot-definition-type slotd))
-        (primary-key slotd)
-        (references slotd)
-        (autoincrement slotd)))
 
-(defun slot-fingerprint-name (fingerprint) (first fingerprint))
-(defun slot-fingerprint-type (fingerprint) (second fingerprint))
-(defun slot-fingerprint-primary-key-p (fingerprint) (third fingerprint))
-(defun slot-fingerprint-references (fingerprint) (fourth fingerprint))
-(defun slot-fingerprint-autoincrement-p (fingerprint) (fifth fingerprint))
+;;;; ==== FINGERPRINTS =====
+
+
+;; (defun slot-fingerprint-p (form)
+;;   ()
+;;   )
+;; (defgeneric slot-fingerprint (slotd))
+;; (defmethod slot-fingerprint ((slotd sql-table-effective-slot-definition))
+;;   (cons (sql-name slotd)
+;;         (list
+;;          (lisp-type->sql-type (mop:slot-definition-type slotd))
+;;          (primary-key slotd)
+;;          (references slotd)
+;;          (autoincrement slotd))))
+
+;; (defun slot-fingerprint-name (fingerprint) (first fingerprint))
+;; (defun slot-fingerprint-type (fingerprint) (second fingerprint))
+;; (defun slot-fingerprint-primary-key-p (fingerprint) (third fingerprint))
+;; (defun slot-fingerprint-references (fingerprint) (fourth fingerprint))
+;; (defun slot-fingerprint-autoincrement-p (fingerprint) (fifth fingerprint))
 
 (defgeneric class-fingerprint (class))
 (defmethod class-fingerprint ((class sql-table))
@@ -318,7 +326,9 @@
 (defun collect-altered-columns (&key old new) ;; new/old are lists of slot fingerprints
 
   ;; TODO finish this
-  (loop :for slot :in )
+  (let* ((columns-found-in-both (set-difference (mapcar #'first old)
+                                               (mapcar #'first new)))
+         ))
   )
 
 (defun migrate-table-using-fingerprints (database tablename &key old new)
