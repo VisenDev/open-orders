@@ -13,7 +13,8 @@
            #:standard-sql-table
            #:id
            #:notes
-           #:list-of-instances))
+           #:list-of-instances
+           #:sql-name))
 (in-package #:open-orders.db)
 
 (declaim (optimize (debug 3)))
