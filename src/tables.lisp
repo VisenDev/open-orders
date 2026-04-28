@@ -65,12 +65,12 @@
 
 
 
-(defclass/std person (open-orders-table db:standard-sql-table)
-  ((first-name last-name email phone :type string))
-  (:metaclass db:sql-table))
+;; (defclass/std person (open-orders-table db:standard-sql-table)
+;;   ((first-name last-name email phone :type string))
+;;   (:metaclass db:sql-table))
 
 (defclass/std customer (open-orders-table db:standard-sql-table)
-  ((primary-contact :type integer :references (person db:id))
+  ((email phone :type string)
    (name :type string))
   (:metaclass db:sql-table))
 

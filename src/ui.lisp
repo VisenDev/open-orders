@@ -22,7 +22,7 @@
   (crypto:byte-array-to-hex-string
    (crypto:random-data 16)))
 
-(defun on-new-customer-screen (body conn)
+(defun on-edit-customer-screen (body conn instance)
   (clog:destroy-children body)
   (*let ((div (clog:create-div body :class "container"))
          (header (clog:create-element div "nav"))
@@ -32,58 +32,63 @@
                                    :class "outline"))
          (form (clog:create-form div))
          (name (clog:create-form-element
-                              form :text
-                              :label (clog:create-label
-                                      form
-                                      :content "Customer Name")))
+                form :text
+                :label (clog:create-label
+                        form
+                        :content "Customer Name")))
          (contact-first-name (clog:create-form-element
                               form :text
                               :label (clog:create-label
                                       form
                                       :content "Primary Contact First Name")))
          (contact-last-name (clog:create-form-element
-                              form :text
-                              :label (clog:create-label
-                                      form
-                                      :content "Primary Contact Last Name")))
+                             form :text
+                             :label (clog:create-label
+                                     form
+                                     :content "Primary Contact Last Name")))
          (contact-email (clog:create-form-element
                          form :text
-                          :label (clog:create-label
-                                  form
-                                  :content "Primary Contact Email")))
+                         :label (clog:create-label
+                                 form
+                                 :content "Primary Contact Email")))
          (contact-phone (clog:create-form-element
-                          form :text
-                          :label (clog:create-label
-                                  form
-                                  :content "Primary Contact Phone")))
+                         form :text
+                         :label (clog:create-label
+                                 form
+                                 :content "Primary Contact Phone")))
          (_ (clog:create-br div))
          (_notes-label (clog:create-p div :content "Notes:"))
          (notes-name (symbol-name (gensym "Notes")))
          (_notes (clog:create-text-area div :rows 4 :name notes-name))
          (save (clog:create-button div :content "Save")))
 
-    (labels ((collect-person-data ()
-               (let ((person (make-instance 'tbl:person)))
-                 (setf (tbl:first-name person) (clog:value contact-first-name))
-                 (setf (tbl:last-name person) (clog:value contact-last-name))
-                 (setf (tbl:email person) (clog:value contact-email))
-                 (setf (tbl:phone person) (clog:value contact-phone))
-                 person))
-             (save-customer-data ()
-               (let ((customer (make-instance 'tbl:customer)))
-                 (setf (tbl:name customer) (clog:value name))
-                 (setf (db:notes customer)
+    (labels
 
-                       ;; Note the clog:textarea-value function doesn't seem to work
-                       ;; so I do this instead
-                       (clog:js-query
-                        body (format
-                              nil "document.getElementsByName(\"~a\")[0].value;"
-                              notes-name)))
+        ((collect-person-data ()
+           (let ((person (make-instance 'tbl:person)))
+             (setf (tbl:first-name person) (clog:value contact-first-name))
+             (setf (tbl:last-name person) (clog:value contact-last-name))
+             (setf (tbl:email person) (clog:value contact-email))
+             (setf (tbl:phone person) (clog:value contact-phone))
+             person))
+             
+         (save-customer-data ()
+           (let ((customer instance))
+             (setf (tbl:name customer) (clog:value name))
+             (setf (db:notes customer)
+
+                   ;; Note the clog:textarea-value function doesn't seem to work
+                   ;; so I do this instead
+                   (clog:js-query
+                    body (format
+                          nil "document.getElementsByName(\"~a\")[0].value;"
+                          notes-name)))
                  
-                 (setf (tbl:primary-contact customer)
-                       (db:database-insert (db conn) (collect-person-data)))
-                 (db:database-insert (db conn) customer))))
+             (setf (tbl:primary-contact customer)
+                   (db:database-insert (db conn) (collect-person-data)))
+             (db:database-insert (db conn) customer))))
+
+      
       (clog:set-on-click back (fn (obj) (on-logged-in-screen body conn)))
       (clog:set-on-click save (fn (obj)
                                 (save-customer-data)

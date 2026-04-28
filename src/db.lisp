@@ -315,14 +315,23 @@
                            (slot-value instance (mop:slot-definition-name
                                                  (primary-key-slot class))))))))))
 
+(defun collect-altered-columns (&key old new) ;; new/old are lists of slot fingerprints
+
+  ;; TODO finish this
+  (loop :for slot :in )
+  )
+
 (defun migrate-table-using-fingerprints (database tablename &key old new)
   (when (equalp old new)
     (return-from migrate-table-using-fingerprints))
 
-  (let ((deleted-cols (set-difference old new :test #'equalp) )
+  (let ((altered-cols ()) ;; todo collect altercolumns, then migrate the table if needed
+        (deleted-cols (set-difference old new :test #'equalp) )
         (added-cols (set-difference new old :test #'equalp) ))
-    ;; (loop :for col :in deleted-cols)
     (declare (ignorable deleted-cols))
+    (loop :for col :in deleted-cols)
+
+    
     (loop :for col :in added-cols
           :do
              (when (slot-fingerprint-autoincrement-p col)
