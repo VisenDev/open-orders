@@ -73,7 +73,7 @@
          ;;
          ;; (setf (clog:storage-element (clog:window body) :local "NewCustomerCache")
          ;;       (list (collect-person-data )))
-         (on-logged-in-screen body conn)))
+           (on-logged-in-screen body conn)))
       (clog:set-on-click
        save
        (fn (obj)
@@ -185,6 +185,7 @@
                    ((not user-record)
                     (setf (clog:inner-html msg) "Invalid Username"))
                    ((and user-record
+                         (tbl:hash user-record)
                          (cl-pass:check-password
                           (clog:value pass) (tbl:hash user-record)))
                     (if (not (clog:checkedp stay-logged-in))

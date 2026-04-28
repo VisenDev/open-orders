@@ -48,3 +48,18 @@
 (defclass test-person ()
   ((age :accessor age :input-type :text))
   (:metaclass html-form))
+
+
+;; maybe do this as a function not a metaclass
+
+
+(defclass/std input ()
+  ((input-type name label min-value max-value default-value regex-pattern placeholder required)))
+
+(defun create-form-from-object (body instance settings)
+  )
+
+(create-form-from-object body (make-instance 'person)
+                         '(:email (:type "email")
+                           :phone (:type "tel")
+                           :notes (:type "textarea")))

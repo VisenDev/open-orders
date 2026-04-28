@@ -11,17 +11,20 @@
 
 (defmacro *let (bindings &body body)
   "let* except it allows underscore prefixed vars to be ignored automatically"
-  (let (ignored)
-    (mapcar (lambda (binding)
-              (when (ignored-binding-p binding)
-                  (push (first binding) ignored)))
-            bindings)
-    `(let* ,bindings
-       (declare (ignorable ,@ignored))
-       ,@body)))
+  `(let* ,bindings
+     (declare (ignorable ,@(remove-duplicates
+                            (remove-if-not #'ignored-binding-p bindings))))
+     ,@body))
 
 (defmacro fn (args &body body)
   "Shorter lambda that automatically makes args ignorable"
   `(lambda ,args
      (declare (ignorable ,@args))
      ,@body))
+
+;; Local Variables:
+;; eval: (font-lock-add-keywords
+;;        'lisp-mode
+;;        '(("(\\(fn\\|\\*let\\)\\_>"
+;;           1 font-lock-keyword-face)))
+;; End:
