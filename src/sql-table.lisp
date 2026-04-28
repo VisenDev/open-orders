@@ -64,6 +64,8 @@
 (defstruct column
   (name "" :type string)
   (type "" :type string)
+  (lisp-name nil :type symbol)
+  (lisp-type nil :type symbol)
   (primary-key-p nil :type boolean)
   (autoincrement-p nil :type boolean)
   (references '() :type references-form)
@@ -87,10 +89,13 @@
 
 (defgeneric slotd->column (classname slotd))
 (defmethod  slotd->column (classname slotd)
-  (let ((name (mop:slot-definition-name slotd)))
+  (let ((name (mop:slot-definition-name slotd))
+        (type (mop:slot-definition-type slotd)))
     (make-column
      :name (lisp-name->sql-name name)
-     :type (lisp-type->sql-type (mop:slot-definition-type slotd))
+     :type (lisp-type->sql-type type)
+     :lisp-name name
+     :lisp-type type
      :primary-key-p (slot-primary-key-p classname name)
      :references (slot-references classname name)
      :autoincrement-p (slot-autoincrement-p classname name)
@@ -142,6 +147,12 @@
 
 (defun table.column-types (table)
   (mapcar #'column-type (table-columns table)))
+
+(defun table.column-lisp-types (table)
+  (mapcar #'column-lisp-type (table-columns table)))
+
+(defun table.column-lisp-names (table)
+  (mapcar #'column-lisp-name (table-columns table)))
 
 (defun table.primary-key.column (table)
   (find t (table-columns table) :key #'column-primary-key-p))
@@ -334,10 +345,8 @@
        (mapcar (lambda (value)
                  (parse-select-statement-results
                   value
-                  (mapcar #'mop:slot-definition-name
-                          (mop:class-slots (find-class classname)))
-                  (mapcar #'mop:slot-definition-type
-                          (mop:class-slots (find-class classname)))
+                  (table.column-lisp-names table)
+                  (table.column-lisp-types table)
                   classname))
                values)))))
 
