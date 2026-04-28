@@ -51,6 +51,7 @@
 
 (defun sql-value->lisp-value (type value)
   (cond
+    ((null value) nil)
     ((subtypep type 'integer) value)
     ((eq type 'string) value)
     ((eq type 'symbol) (let ((*read-eval* nil)) (read-from-string value)))
@@ -64,8 +65,8 @@
   (name "" :type string)
   (type "" :type string)
   (primary-key-p nil :type boolean)
-  (references '() :type references-form)
   (autoincrement-p nil :type boolean)
+  (references '() :type references-form)
   (not-null-p nil :type boolean))
 
 
@@ -100,6 +101,7 @@
   (columns nil :type list))
 
 (defmethod class->table ((class standard-class))
+  (mop:ensure-finalized class)
   (let* ((name (class-name class))
          (slots (mop:class-slots class)))
     (flet ((persistent-slots ()
@@ -129,7 +131,7 @@
                       (column-name c) " "
                       (column-type c)
                       (when (column-primary-key-p c) " PRIMARY KEY")
-                      (when (column-autoincrement-p c) " AUTO_INCREMENT")
+                      (when (column-autoincrement-p c) " AUTOINCREMENT")
                       (when (column-not-null-p c) " NOT NULL")
                       (a:when-let (ref (column-references c))
                         (format nil " REFERENCES ~a(~a)" (first ref) (second ref)))))
@@ -137,6 +139,9 @@
 
 (defun table.column-names (table)
   (mapcar #'column-name (table-columns table)))
+
+(defun table.column-types (table)
+  (mapcar #'column-type (table-columns table)))
 
 (defun table.primary-key.column (table)
   (find t (table-columns table) :key #'column-primary-key-p))
@@ -166,6 +171,13 @@
           (table-name table)
           column-names
           where))
+
+(defun table.sql.select
+    (table &key
+             (column-names (table.column-names table))
+             (where (table.primary-key.name table)))
+  (format nil "SELECT ~{~a~^, ~} FROM ~a~@[ WHERE ~a = ?~];"
+          column-names (table-name table) where))
 
 (defun find-finalized-class (classname)
   "Finds a class and ensures it is finalized as well"
@@ -234,15 +246,19 @@
     
     eslot))
 
-(defclass company ()
-  ((id :type integer :not-null t :primary-key t :autoincrement t)
-   (foo :persistent nil)
-   (bar :references (person id)))
-  (:metaclass sql-table))
-
-
 ;;;; ==== PUBLIC API ====
-(defstruct statement sql params)
+(defstruct statement
+  sql
+  params
+
+  ;; extra data that can be used for parsing the
+  ;; results of select statements automatically
+  ;; selected-slot-names
+  ;; selected-slot-types
+  ;; selected-classname
+  fetch
+  fetch-results-parse-function 
+  )
 
 (defun create-table (classname)
   (make-statement
@@ -258,34 +274,111 @@
   (let*
       ((class (class-of instance))
        (slots (mop:class-slots class))
-       (slot-names (mapcar #'mop:slot-definition-name slots))
-       (bound-slot-names
-         (remove-if-not (a:curry #'slot-boundp instance) slot-names))
+       (bound-slots
+         (remove-if-not (a:curry #'slot-boundp instance) slots
+                        :key #'mop:slot-definition-name))
        (table (class->table class)))
+    (when (null bound-slots)
+      (return-from insert-into (make-statement :sql "")))
     (make-statement
-     :sql (table.sql.insert-into
-           table
-           :column-names (mapcar #'lisp-name->sql-name bound-slot-names))
-     :params (mapcar (a:curry #'slot-value instance) bound-slot-names))))
+     :sql (table.sql.insert-into table
+                                 :column-names
+                                 (mapcar (a:compose #'lisp-name->sql-name
+                                                    #'mop:slot-definition-name)
+                                         bound-slots))
+     :params (mapcar (lambda (slotd)
+                       (lisp-value->sql-value
+                        (mop:slot-definition-type slotd)
+                        (slot-value instance (mop:slot-definition-name slotd))))
+                     bound-slots))))
 
+(defun parse-select-statement-results (values names types classname)
+  "Parses a list of sql values the data contained in statement"
+  (let* ((instance (make-instance classname)))
+    (assert (= (length values)
+               (length types)
+               (length names)))
+    (loop :for val :in values
+          :for name :in names
+          :for type :in types
+          :do (setf (slot-value instance name)
+                    (sql-value->lisp-value type val)))
+    instance))
+
+(defun select (classname where-column where-value)
+  (let ((table (class->table (find-finalized-class classname))))
+    (make-statement
+     :sql (table.sql.select table :column-names (table.column-names table)
+                                  :where (lisp-name->sql-name where-column))
+     :params (list where-value)
+     :fetch t
+     :fetch-results-parse-function
+     (lambda (value)
+       (print (parse-select-statement-results
+               value
+               (mapcar #'mop:slot-definition-name
+                       (mop:class-slots (find-class classname)))
+               (mapcar #'mop:slot-definition-type
+                       (mop:class-slots (find-class classname)))
+               classname))))))
+
+(defun select-all (classname)
+  (let ((table (class->table (find-finalized-class classname))))
+    (make-statement
+     :sql (table.sql.select table :column-names (table.column-names table)
+                                  :where nil)
+     :params nil
+     :fetch :all
+     :fetch-results-parse-function
+     (lambda (values)
+       (mapcar (lambda (value)
+                 (parse-select-statement-results
+                  value
+                  (mapcar #'mop:slot-definition-name
+                          (mop:class-slots (find-class classname)))
+                  (mapcar #'mop:slot-definition-type
+                          (mop:class-slots (find-class classname)))
+                  classname))
+               values)))))
+
+
+
+;;;; DBI INTEGRATION
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (when (find-package '#:dbi)
+    (pushnew :dbi *features*)))
+
+(defgeneric do-statement (database statement))
+
+#+dbi
+(defmethod do-statement
+    ((database dbi:dbi-connection)
+     (statement statement))
+  (let ((query (dbi:prepare database (statement-sql statement))))
+    (dbi:execute query (statement-params statement))
+    (ecase (statement-fetch statement)
+      ((:all)
+       (funcall
+        (statement-fetch-results-parse-function statement)
+        (dbi:fetch-all query :format :values)))
+      ((t)
+       (unless (zerop (dbi:query-row-count query))
+         (funcall (statement-fetch-results-parse-function statement)
+                  (dbi:fetch query :format :values))))
+      ((nil) query))))
 
 ;;;; testing
 
 (defclass person ()
-  (id first-name last-name age))
+  ((id :type integer
+       :primary-key t
+       :autoincrement t
+       :not-null t)
+   (first-name :initarg :first)
+   last-name age)
+  (:metaclass sql-table))
 
 (defmethod slot-primary-key-p ((classname (eql 'person)) (slotname (eql 'id))) t)
 
 (defun test ()
-  (mop:ensure-finalized (find-class 'person))
-  (let ((tbl
-          (class->table (find-class 'person)))
-        (p (make-instance 'person)))
-    (setf (slot-value p 'first-name) "John")
-    (setf (slot-value p 'age) 30)
-    (insert-into p)
-    )
-  )
-
-
-    
+  (select 'person 'id 0))
