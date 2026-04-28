@@ -115,9 +115,9 @@
                                      (slotd->column name slot))
                                    (persistent-slots))))))
 
-(defstruct statement sql params)
 
-(defun table->create-table-sql (table &key if-not-exists)
+
+(defun table.sql.create-table (table &key if-not-exists)
   (concatenate
    'string "CREATE TABLE "
    (when if-not-exists "IF NOT EXISTS ")
@@ -135,10 +135,139 @@
                         (format nil " REFERENCES ~a(~a)" (first ref) (second ref)))))
                    (table-columns table)))))
 
-(defun table->drop-table-sql (table &key if-exists)
+(defun table.column-names (table)
+  (mapcar #'column-name (table-columns table)))
+
+(defun table.primary-key.column (table)
+  (find t (table-columns table) :key #'column-primary-key-p))
+
+(defun table.primary-key.name (table)
+  (column-name (table.primary-key.column table)))
+
+(defun table.sql.drop-table (table &key if-exists)
   (format nil "DROP TABLE ~:[~;IF EXISTS ~]~a;" if-exists (table-name table)))
 
-(defmethod insert-sql (class))
+(defun table.sql.insert-into
+    (table &key
+             (column-names (table.column-names table))
+             (returning (table.primary-key.name table)))
+  (format
+   nil "INSERT INTO ~a(~{~a~^,~}) VALUES (~{~a~^,~})~@[ RETURNING ~a~];"
+          (table-name table)
+          column-names
+          (mapcar (constantly #\?) column-names)
+          returning))
+
+(defun table.sql.update
+    (table &key
+             (column-names (table.column-names table))
+             (where (table.primary-key.name table)))
+  (format nil "UPDATE ~a SET ~{~a = ?~^, ~} WHERE ~a = ?;"
+          (table-name table)
+          column-names
+          where))
+
+(defun find-finalized-class (classname)
+  "Finds a class and ensures it is finalized as well"
+  (let ((class (find-class classname)))
+    (mop:ensure-finalized class)
+    class))
+
+;;;; ==== METACLASS ====
+(defclass sql-table (standard-class) ())
+(defmethod mop:validate-superclass ((class sql-table)
+                                    (superclass standard-class))
+  t)
+(defclass sql-table-direct-slot-definition
+    (mop:standard-direct-slot-definition)
+  ((primary-key-p :initarg :primary-key
+                  :initform nil
+                  :accessor primary-key-p)
+   (persistent-p :initarg :persistent
+                 :initform t
+                 :accessor persistent-p)
+   (autoincrement-p :initarg :autoincrement
+                    :initform nil
+                    :accessor autoincrement-p)
+   (references :initarg :references
+               :initform nil
+               :accessor references)
+   (not-null-p :initarg :not-null
+               :initform nil
+               :accessor not-null-p)))
+(defmethod mop:direct-slot-definition-class
+    ((class sql-table) &rest initargs)
+  (declare (ignore initargs))
+  (find-class 'sql-table-direct-slot-definition))
+(defmethod mop:compute-effective-slot-definition
+    ((class sql-table) name direct-slots)
+  (let ((eslot (call-next-method))
+        (slot-name (some #'mop:slot-definition-name direct-slots))
+        (class-name (class-name class))
+        (primary-key-p (some #'primary-key-p direct-slots))
+        (persistent-p (some #'persistent-p direct-slots))
+        (autoincrement-p (some #'autoincrement-p direct-slots))
+        (references (some #'references direct-slots))
+        (not-null-p (some #'not-null-p direct-slots)))
+
+    ;; define methods using direct slot metadata
+    (defmethod slot-primary-key-p
+        ((classname (eql class-name))
+         (slotname (eql slot-name)))
+      primary-key-p)
+    (defmethod slot-persistent-p
+        ((classname (eql class-name))
+         (slotname (eql slot-name)))
+      persistent-p)
+    (defmethod slot-autoincrement-p
+        ((classname (eql class-name))
+         (slotname (eql slot-name)))
+      autoincrement-p)
+    (defmethod slot-references
+        ((classname (eql class-name))
+         (slotname (eql slot-name)))
+      references)
+    (defmethod slot-not-null-p
+        ((classname (eql class-name))
+         (slotname (eql slot-name)))
+      not-null-p)
+    
+    eslot))
+
+(defclass company ()
+  ((id :type integer :not-null t :primary-key t :autoincrement t)
+   (foo :persistent nil)
+   (bar :references (person id)))
+  (:metaclass sql-table))
+
+
+;;;; ==== PUBLIC API ====
+(defstruct statement sql params)
+
+(defun create-table (classname)
+  (make-statement
+   :sql (table.sql.create-table (class->table 
+                                 (find-finalized-class classname)))))
+
+(defun drop-table (classname)
+  (make-statement
+   :sql (table.sql.drop-table (class->table 
+                                 (find-finalized-class classname)))))
+
+(defun insert-into (instance)
+  (let*
+      ((class (class-of instance))
+       (slots (mop:class-slots class))
+       (slot-names (mapcar #'mop:slot-definition-name slots))
+       (bound-slot-names
+         (remove-if-not (a:curry #'slot-boundp instance) slot-names))
+       (table (class->table class)))
+    (make-statement
+     :sql (table.sql.insert-into
+           table
+           :column-names (mapcar #'lisp-name->sql-name bound-slot-names))
+     :params (mapcar (a:curry #'slot-value instance) bound-slot-names))))
+
 
 ;;;; testing
 
@@ -150,9 +279,12 @@
 (defun test ()
   (mop:ensure-finalized (find-class 'person))
   (let ((tbl
-          (class->table (find-class 'person))))
-
-    (table->drop-table-sql tbl :if-exists t))
+          (class->table (find-class 'person)))
+        (p (make-instance 'person)))
+    (setf (slot-value p 'first-name) "John")
+    (setf (slot-value p 'age) 30)
+    (insert-into p)
+    )
   )
 
 
