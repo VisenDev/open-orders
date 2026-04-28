@@ -7,13 +7,18 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun ignored-binding-p (binding)
     (and (listp binding)
-         (char= #\_ (char (symbol-name (first binding)) 0)))))
+         (char= #\_ (char (symbol-name (first binding)) 0))))
+  (defun binding->name (binding)
+    (if (listp binding)
+        (first binding)
+        binding)))
 
 (defmacro *let (bindings &body body)
   "let* except it allows underscore prefixed vars to be ignored automatically"
   `(let* ,bindings
      (declare (ignorable ,@(remove-duplicates
-                            (remove-if-not #'ignored-binding-p bindings))))
+                            (mapcar #'binding->name
+                                    (remove-if-not #'ignored-binding-p bindings)))))
      ,@body))
 
 (defmacro fn (args &body body)

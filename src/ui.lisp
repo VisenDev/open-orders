@@ -1,8 +1,11 @@
-(defpackage #:open-orders.ui
-  (:use #:cl #:open-orders.utils)
+(uiop:define-package #:open-orders.ui
+  (:use #:cl)
   (:import-from #:defclass-std
                 #:defclass/std
                 #:class/std)
+  (:import-from #:open-orders.utils
+                #:fn
+                #:*let)
   (:local-nicknames (#:a #:alexandria)
                     (#:gui #:clog-gui)
                     (#:auth #:clog-auth)
