@@ -6,6 +6,7 @@
                     (#:mop #:closer-mop)))
 (in-package #:open-orders.sql-table)
 
+(declaim (optimize (debug 3)))
 
 ;;;; ==== TYPES ====
 (declaim (ftype (function (t) boolean) references-form-p))
@@ -67,48 +68,92 @@
   (autoincrement-p nil :type boolean)
   (not-null-p nil :type boolean))
 
-;; (defmethod slotd->column ((slotd sql-table-effective-slot-definition))
-;;   (make-column
-;;    :name (lisp-identifier->sql-identifier (mop:slot-definition-type slotd))
-;;    :type (lisp-type->sql-type (mop:slot-definition-type slotd))
-;;    :primary-key-p (primary-key slotd)
-;;    :references (references slotd)
-;;    :autoincrement-p (autoincrement slotd)))
 
-(defmethod slotd-derive-primary-slot-p ((slotd mop:standard-effective-slot-definition))
-  nil)
+(defgeneric slot-primary-key-p (classname slotname))
+(defmethod  slot-primary-key-p (classname slotname) nil)
 
-(defmethod slotd-derive-references ((slotd mop:standard-effective-slot-definition))
-  nil)
+(defgeneric slot-references (classname slotname))
+(defmethod slot-references (classname slotname) nil)
 
-(defmethod slotd-derive-autoincrement-p ((slotd mop:standard-effective-slot-definition))
-  nil)
+(defgeneric slot-not-null-p (classname slotname))
+(defmethod slot-not-null-p (classname slotname) nil)
 
-(defmethod slotd->column ((slotd mop:standard-effective-slot-definition))
-  (make-column
-   :name (lisp-name->sql-name (mop:slot-definition-type slotd))
-   :type (lisp-type->sql-type (mop:slot-definition-type slotd))
-   :primary-key-p (slotd-derive-primary-slot-p slotd)
-   :references (slotd-derive-references slotd)
-   :autoincrement-p (slotd-derive-autoincrement-p slotd)))
+(defgeneric slot-autoincrement-p (classname slotname))
+(defmethod slot-autoincrement-p (classname slotname) nil)
+
+(defgeneric slot-persistent-p (classname slotname))
+(defmethod slot-persistent-p (classname slotname) t)
+
+(defgeneric slotd->column (classname slotd))
+(defmethod  slotd->column (classname slotd)
+  (let ((name (mop:slot-definition-name slotd)))
+    (make-column
+     :name (lisp-name->sql-name name)
+     :type (lisp-type->sql-type (mop:slot-definition-type slotd))
+     :primary-key-p (slot-primary-key-p classname name)
+     :references (slot-references classname name)
+     :autoincrement-p (slot-autoincrement-p classname name)
+     :not-null-p (slot-not-null-p classname name))))
 
 (defstruct table
   (name "" :type string)
-  (slots nil :type list))
+  (columns nil :type list))
 
 (defmethod class->table ((class standard-class))
-  (make-table :name (lisp-name->sql-name (class-name class))
-              :slots (mapcar #'slotd->column (mop:class-slots class))))
+  (let* ((name (class-name class))
+         (slots (mop:class-slots class)))
+    (flet ((persistent-slots ()
+             (let* ((names (mapcar #'mop:slot-definition-name slots))
+                    (persistent (remove-if-not
+                                 (a:curry #'slot-persistent-p name)
+                                 names)))
+               (remove-if-not
+                (lambda (s) (member (mop:slot-definition-name s) persistent))
+                slots))))
+      (make-table :name (lisp-name->sql-name name)
+                  :columns (mapcar (lambda (slot)
+                                     (slotd->column name slot))
+                                   (persistent-slots))))))
 
+(defstruct statement sql params)
 
+(defun table->create-table-sql (table &key if-not-exists)
+  (concatenate
+   'string "CREATE TABLE "
+   (when if-not-exists "IF NOT EXISTS ")
+   (table-name table)
+   (format nil " (~{~a~^, ~});"
+           (mapcar (lambda (c)
+                     (concatenate
+                      'string
+                      (column-name c) " "
+                      (column-type c)
+                      (when (column-primary-key-p c) " PRIMARY KEY")
+                      (when (column-autoincrement-p c) " AUTO_INCREMENT")
+                      (when (column-not-null-p c) " NOT NULL")
+                      (a:when-let (ref (column-references c))
+                        (format nil " REFERENCES ~a(~a)" (first ref) (second ref)))))
+                   (table-columns table)))))
+
+(defun table->drop-table-sql (table &key if-exists)
+  (format nil "DROP TABLE ~:[~;IF EXISTS ~]~a;" if-exists (table-name table)))
+
+(defmethod insert-sql (class))
 
 ;;;; testing
 
 (defclass person ()
   (id first-name last-name age))
 
-(defmethod primary-key-p ((class person) slot-name)
-  (eq slot-name 'id))
+(defmethod slot-primary-key-p ((classname (eql 'person)) (slotname (eql 'id))) t)
+
+(defun test ()
+  (mop:ensure-finalized (find-class 'person))
+  (let ((tbl
+          (class->table (find-class 'person))))
+
+    (table->drop-table-sql tbl :if-exists t))
+  )
 
 
     
