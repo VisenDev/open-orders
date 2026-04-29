@@ -1,4 +1,4 @@
-(uiop:define-package #:open-orders.paths
+(open-orders.utils:defpackage* #:open-orders.paths
   (:use #:cl)
   (:export #:*db-path*))
 (in-package #:open-orders.paths)

@@ -156,7 +156,7 @@
   
   ;; If valid authentication token is found, go to logged in screen
   (a:when-let (tok (clog-auth:get-authentication-token body))
-    (lparallel.promise:force (db-future conn))
+    (setf (db conn) (tbl:database-connect))
     (a:when-let (found-user
                  (sql:exec-select 'tbl:user 'tbl:authentication-token tok
                                   (db conn))))
@@ -185,6 +185,9 @@
          (login (clog:create-button div :content "Login" :style "margin-top:20px;"))
          (msg (clog:create-p div :content "" :style "padding:10px;color:red;")))
 
+    (unless (db conn)
+      (setf (db conn) (tbl:database-connect))
+      )
 
 
     ;; Reset msg on keyboard input
@@ -244,9 +247,9 @@
     ;;                )
 
     ;; begin loading database in parallel
-    (setf (db-future conn)
-          (lparallel.promise:future
-            (setf (db conn) (tbl:database-connect))))
+    ;; (setf (db-future conn)
+    ;;       (lparallel.promise:future
+    ;;         ))
 
     ;; (setf (db conn) (tbl:database-connect))
 
@@ -272,7 +275,7 @@
 
 
 (defun test ()
-  (setf lparallel:*kernel* (lparallel:make-kernel 3))
+  ;; (setf lparallel:*kernel* (lparallel:make-kernel 3))
   (clog:initialize #'on-new-window)
   (clog:open-browser)
   )

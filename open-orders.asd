@@ -3,8 +3,8 @@
 (defsystem "open-orders" 
   :author "Robert Burnett"
   :license "GPL-3.0"
-  :depends-on ("trivial-features"
-               "clog"
+  :depends-on ("clog"
+               "alexandria"
                "closer-mop"
                "defclass-std"
                "marshal"
@@ -12,10 +12,7 @@
                "cl-dbi"
                "sqlite"
                "uiop"
-               "cl-pass"
-               "lparallel"
-               "trivial-types"
-               "mito")
+               "cl-pass")
   :serial t
   :components ((:module "static-files"
                 :components ((:static-file "pico.min.css")))

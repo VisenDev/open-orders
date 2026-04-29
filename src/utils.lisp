@@ -1,10 +1,13 @@
-(defpackage #:open-orders.utils
+(cl:defpackage #:open-orders.utils
   (:use #:cl)
+  (:local-nicknames (#:a #:alexandria))
   (:export #:*let
-           #:fn))
+           #:fn
+           #:defpackage*))
 (in-package #:open-orders.utils)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
+  
   (defun ignored-binding-p (binding)
     (and (listp binding)
          (char= #\_ (char (symbol-name (first binding)) 0))))
@@ -12,6 +15,16 @@
     (if (listp binding)
         (first binding)
         binding)))
+
+(defvar *package-cache* (make-hash-table))
+(defmacro defpackage* (name &body clauses)
+  "Defpackage except it also deletes to the package if it already exists
+   to avoid package export errors"
+  (a:when-let (existing (gethash name *package-cache*))
+    (unless (equalp clauses existing)
+     (delete-package name)))
+  (setf (gethash name *package-cache*) clauses)
+  `(defpackage ,name ,@clauses))
 
 (defmacro *let (bindings &body body)
   "let* except it allows underscore prefixed vars to be ignored automatically"

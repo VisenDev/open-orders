@@ -1,4 +1,4 @@
-(defpackage #:open-orders.tables
+(open-orders.utils:defpackage* #:open-orders.tables
   (:use #:cl)
   (:import-from #:defclass-std
                 #:defclass/std
@@ -42,7 +42,8 @@
            #:database-disconnect
            #:database-connect
            #:authentication-token
-           #:authentication-token-timestamp))
+           #:authentication-token-timestamp)
+  )
 (in-package #:open-orders.tables)
 
 (defclass autodefined-table () ())
@@ -85,9 +86,12 @@
 ;;   ((first-name last-name email phone :type string))
 ;;   (:metaclass sql:sql-table))
 
-(defclass/std customer (open-orders-table)
-  ((email phone :type string)
-   (name :type string))
+(defclass/std contactable-mixin ()
+  ((contact-first-name contact-last-name contact-email contact-phone
+                       :type string :std "")))
+
+(defclass/std customer (open-orders-table contactable-mixin)
+  ((name :type string))
   (:metaclass sql:sql-table))
 
 (defclass/std part (open-orders-table)
@@ -96,10 +100,9 @@
    (revision :type string))
   (:metaclass sql:sql-table))
 
-(defclass/std suppliers (open-orders-table)
+(defclass/std suppliers (open-orders-table contactable-mixin)
   ((name :type string)
-   (supplies :type list)
-   (primary-contact :type integer :references (person id)))
+   (supplies :type list))
   (:metaclass sql:sql-table))
 
 (defclass/std material (open-orders-table)
