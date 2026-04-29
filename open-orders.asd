@@ -14,7 +14,8 @@
                "uiop"
                "cl-pass"
                "lparallel"
-               "trivial-types")
+               "trivial-types"
+               "mito")
   :serial t
   :components ((:module "static-files"
                 :components ((:static-file "pico.min.css")))
