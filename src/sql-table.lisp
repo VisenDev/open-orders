@@ -1,9 +1,44 @@
 (defpackage #:open-orders.sql-table
   (:use #:cl)
-  (:import-from #:trivial-types
-                #:association-list)
   (:local-nicknames (#:a #:alexandria)
-                    (#:mop #:closer-mop)))
+                    (#:mop #:closer-mop))
+  (:export
+   
+   #:*database*
+   #:sql-table
+   
+   #:exec-select-all
+   #:select
+   #:exec-select
+   #:insert
+   #:exec-insert
+   #:drop
+   #:exec-drop
+   #:create
+   #:exec-create
+   #:update
+   #:exec-update
+   
+   #:exec
+   #:statement
+   #:make-statement
+   #:statement-p
+   #:copy-statement
+   #:statement-sql
+   #:statement-params
+   #:statement-fetch
+   #:statement-fetch-results-parse-function
+   #:sql-table-direct-slot-definition
+   #:slot-persistent-p
+   #:slot-autoincrement-p
+   #:slot-not-null-p
+   #:slot-references
+   #:slot-primary-key-p
+   #:sql-value->lisp-value
+   #:lisp-value->sql-value
+   #:lisp-type->sql-type
+   #:lisp-name->sql-name
+   #:references-form-p))
 (in-package #:open-orders.sql-table)
 
 (declaim (optimize (debug 3)))
@@ -37,7 +72,8 @@
     (t "BLOB")))
 
 (defun lisp-value->sql-value (type value)
-  (assert (typep value type))
+  (assert (or (null value)
+              (typep value type)))
   (cond
     ((subtypep type 'integer) value)
     ((eq type 'string) value)
@@ -257,9 +293,9 @@
     
     eslot))
 
-;;;; ==== PUBLIC API ====
+
 (defstruct statement
-  sql
+  (sql "" :type string)
   params
 
   ;; extra data that can be used for parsing the
@@ -271,39 +307,64 @@
   fetch-results-parse-function 
   )
 
-(defun create-table (classname)
+
+
+(defun instance->sql-names (instance)
+  (loop
+    :with class = (class-of instance)
+    :with table = (class->table class)
+    :for col :in (table-columns table)
+    :when (slot-boundp instance (column-lisp-name col))
+      :collect (column-name col)))
+
+(defun instance->sql-values (instance)
+  (loop
+    :with class = (class-of instance)
+    :with table = (class->table class)
+    :for col :in (table-columns table)
+    :when (slot-boundp instance (column-lisp-name col))
+      :collect (lisp-value->sql-value
+                (column-lisp-type col)
+                (slot-value instance (column-lisp-name col)))))
+
+(declaim (ftype (function (statement &optional t) t) exec))
+(declaim (special *database*))
+(defmacro defun/exec (name args &body body)
+  "defun that also generates an exec version of the function 
+   calls the normal version and then passes its results into exec "
+  `(progn (defun ,name ,args ,@body)
+          (defun ,(a:symbolicate 'exec- name)
+              ,(remove-duplicates
+                (append
+                 args
+                 '(&optional (database *database*)))
+                :from-end t)
+            (exec ,(remove '&optional (cons name args)) database))))
+
+
+;;;; ==== PUBLIC API ====
+(defun/exec create (classname &optional if-not-exists)
   (make-statement
    :sql (table.sql.create-table (class->table 
-                                 (find-finalized-class classname)))))
+                                 (find-finalized-class classname))
+                                :if-not-exists if-not-exists)))
 
-(defun drop-table (classname)
+(defun/exec drop (classname &optional if-exists)
   (make-statement
    :sql (table.sql.drop-table (class->table 
-                                 (find-finalized-class classname)))))
+                                 (find-finalized-class classname))
+                              :if-exists if-exists)))
 
-(defun insert-into (instance)
-  (let*
-      ((class (class-of instance))
-       (slots (mop:class-slots class))
-       (bound-slots
-         (remove-if-not (a:curry #'slot-boundp instance) slots
-                        :key #'mop:slot-definition-name))
-       (table (class->table class)))
-    (when (null bound-slots)
-      (return-from insert-into (make-statement :sql "")))
+(defun/exec insert (instance)
+  (let* ((class (class-of instance))
+         (table (class->table class)))
     (make-statement
-     :sql (table.sql.insert-into table
-                                 :column-names
-                                 (mapcar (a:compose #'lisp-name->sql-name
-                                                    #'mop:slot-definition-name)
-                                         bound-slots))
-     :params (mapcar (lambda (slotd)
-                       (lisp-value->sql-value
-                        (mop:slot-definition-type slotd)
-                        (slot-value instance (mop:slot-definition-name slotd))))
-                     bound-slots))))
+     :sql (table.sql.insert-into table :column-names (instance->sql-names instance))
+     :params (instance->sql-values instance)
+     :fetch t
+     :fetch-results-parse-function (lambda (result) (first result)))))
 
-(defun parse-select-statement-results (values names types classname)
+(defun/exec parse-select-statement-results (values names types classname)
   "Parses a list of sql values the data contained in statement"
   (let* ((instance (make-instance classname)))
     (assert (= (length values)
@@ -316,7 +377,7 @@
                     (sql-value->lisp-value type val)))
     instance))
 
-(defun select (classname where-column where-value)
+(defun/exec select (classname where-column where-value)
   (let ((table (class->table (find-finalized-class classname))))
     (make-statement
      :sql (table.sql.select table :column-names (table.column-names table)
@@ -333,7 +394,7 @@
                        (mop:class-slots (find-class classname)))
                classname))))))
 
-(defun select-all (classname)
+(defun/exec select-all (classname)
   (let ((table (class->table (find-finalized-class classname))))
     (make-statement
      :sql (table.sql.select table :column-names (table.column-names table)
@@ -350,19 +411,17 @@
                   classname))
                values)))))
 
+(defun/exec update (instance)
+  (let ((table (class->table (class-of instance))))
+    (make-statement :sql (table.sql.update table)
+                    :params ())))
 
 
 ;;;; DBI INTEGRATION
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (when (find-package '#:dbi)
-    (pushnew :dbi *features*)))
 
-(defgeneric do-statement (database statement))
+(defvar *database* nil)
 
-#+dbi
-(defmethod do-statement
-    ((database dbi:dbi-connection)
-     (statement statement))
+(defun exec (statement &optional (database *database*))
   (let ((query (dbi:prepare database (statement-sql statement))))
     (dbi:execute query (statement-params statement))
     (ecase (statement-fetch statement)

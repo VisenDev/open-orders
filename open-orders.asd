@@ -22,7 +22,7 @@
                 :serial t
                 :components ((:file "utils")
                              (:file "paths")
-                             (:file "db")
+                             (:file "sql-table")
                              (:file "tables")
                              (:file "ui")
                              (:file "main")))))

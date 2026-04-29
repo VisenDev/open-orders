@@ -9,7 +9,8 @@
   (:local-nicknames (#:a #:alexandria)
                     (#:gui #:clog-gui)
                     (#:auth #:clog-auth)
-                    (#:db #:open-orders.db)
+                    (#:sql #:open-orders.sql-table)
+                    ;; (#:db #:open-orders.db)
                     (#:paths #:open-orders.paths)
                     (#:tbl #:open-orders.tables)))
 (in-package #:open-orders.ui)
@@ -62,63 +63,63 @@
          (_notes (clog:create-text-area div :rows 4 :name notes-name))
          (save (clog:create-button div :content "Save")))
 
-    (labels
+    ;; (labels
 
-        ((collect-person-data ()
-           (let ((person (make-instance 'tbl:person)))
-             (setf (tbl:first-name person) (clog:value contact-first-name))
-             (setf (tbl:last-name person) (clog:value contact-last-name))
-             (setf (tbl:email person) (clog:value contact-email))
-             (setf (tbl:phone person) (clog:value contact-phone))
-             person))
+    ;;     (;; (collect-person-data ()
+    ;;      ;;   (let ((person (make-instance 'tbl:person)))
+    ;;      ;;     (setf (tbl:first-name person) (clog:value contact-first-name))
+    ;;      ;;     (setf (tbl:last-name person) (clog:value contact-last-name))
+    ;;      ;;     (setf (tbl:email person) (clog:value contact-email))
+    ;;      ;;     (setf (tbl:phone person) (clog:value contact-phone))
+    ;;      ;;     person))
              
-         (save-customer-data ()
-           (let ((customer instance))
-             (setf (tbl:name customer) (clog:value name))
-             (setf (db:notes customer)
+    ;;      (save-customer-data ()
+    ;;        (let ((customer instance))
+    ;;          (setf (tbl:name customer) (clog:value name))
+    ;;          (setf (tbl:notes customer)
 
-                   ;; Note the clog:textarea-value function doesn't seem to work
-                   ;; so I do this instead
-                   (clog:js-query
-                    body (format
-                          nil "document.getElementsByName(\"~a\")[0].value;"
-                          notes-name)))
+    ;;                ;; Note the clog:textarea-value function doesn't seem to work
+    ;;                ;; so I do this instead
+    ;;                (clog:js-query
+    ;;                 body (format
+    ;;                       nil "document.getElementsByName(\"~a\")[0].value;"
+    ;;                       notes-name)))
                  
-             (setf (tbl:primary-contact customer)
-                   (db:database-insert (db conn) (collect-person-data)))
-             (db:database-insert (db conn) customer))))
+    ;;          (setf (tbl:primary-contact customer)
+    ;;                (sql:exec-insert (collect-person-data) (db conn)))
+    ;;          (sql:exec-insert customer (db conn)))))
 
       
-      (clog:set-on-click back (fn (obj) (on-logged-in-screen body conn)))
-      (clog:set-on-click save (fn (obj)
-                                (save-customer-data)
-                                (on-logged-in-screen body conn))))))
+    ;;   (clog:set-on-click back (fn (obj) (on-logged-in-screen body conn)))
+    ;;   (clog:set-on-click save (fn (obj)
+    ;;                             (save-customer-data)
+    ;;                             (on-logged-in-screen body conn))))
+    ))
 
-(defun on-customers-screen (body conn)
-  (clog:destroy-children body)
+;; (defun on-customers-screen (body conn)
+;;   (clog:destroy-children body)
 
-  (loop
-    :with div = (clog:create-div body :class "container")
-    :with header = (clog:create-element div "nav")
-    :with header-list = (clog:create-unordered-list header)
-    :with back = (clog:set-on-click
-                  (clog:create-button (clog:create-list-item header-list)
-                                      :content "Back"
-                                      :class "outline")
-                  (fn (obj) (on-logged-in-screen body conn)))
-    :with query = (dbi:prepare (db conn) (format nil "SELECT ID FROM ~a;"
-                                                 (db:sql-name (find-class 'tbl:customer))))
-    :with ids = (mapcar #'first
-                        (progn (dbi:execute query)
-                               (dbi:fetch-all query :format :values)))
-    :for id :in ids
-    :for customer = (db:database-lookup
-                     (db conn) 'tbl:customer id)
-    :do (clog:create-p div
-                       :content (format nil "~a    ~a"
-                                        (db:id customer)
-                                        (tbl:name customer))
-                       :class "outline")))
+;;   (loop
+;;     :with div = (clog:create-div body :class "container")
+;;     :with header = (clog:create-element div "nav")
+;;     :with header-list = (clog:create-unordered-list header)
+;;     :with back = (clog:set-on-click
+;;                   (clog:create-button (clog:create-list-item header-list)
+;;                                       :content "Back"
+;;                                       :class "outline")
+;;                   (fn (obj) (on-logged-in-screen body conn)))
+;;     :with query = (dbi:prepare (db conn) (format nil "SELECT ID FROM ~a;"
+;;                                                  (sql:lisp-name->sql-name 'tbl:customer)))
+;;     :with ids = (mapcar #'first
+;;                         (progn (dbi:execute query)
+;;                                (dbi:fetch-all query :format :values)))
+;;     :for id :in ids
+;;     :for customer = (sql:exec-select 'tbl:customer id )
+;;     :do (clog:create-p div
+;;                        :content (format nil "~a    ~a"
+;;                                         (db:id customer)
+;;                                         (tbl:name customer))
+;;                        :class "outline")))
 
 (defun menu-bar-generate (body conn)
   (*let ((div (clog:create-div body :class "container"))
@@ -157,8 +158,8 @@
   (a:when-let (tok (clog-auth:get-authentication-token body))
     (lparallel.promise:force (db-future conn))
     (a:when-let (found-user
-                 (db:database-lookup (db conn) 'tbl:user tok
-                                     :column 'tbl:authentication-token)))
+                 (sql:exec-select 'tbl:user 'tbl:authentication-token tok
+                                  (db conn))))
     (return-from on-login-screen 
       (on-logged-in-screen body conn)))
   
@@ -194,7 +195,8 @@
                (declare (ignorable obj))
                (let ((user-record
                        (handler-case
-                           (db:database-lookup (db conn) 'tbl:user (clog:value user))
+                           (sql:exec-select 'tbl:user 'tbl:name (clog:value user)
+                                            (db conn))
                          (error (e) (clog:alert (clog:window body) e)))))
                  (cond
                    ((not user-record)
@@ -211,7 +213,7 @@
                           (setf (tbl:authentication-token user-record) tok)
                           (setf (tbl:authentication-token-timestamp user-record)
                                 (get-universal-time))
-                          (db:database-update (db conn) user-record)
+                          (sql:exec-update user-record (db conn))
                           (clog-auth:store-authentication-token
                            body tok)))
                     
