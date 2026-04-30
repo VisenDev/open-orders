@@ -46,8 +46,10 @@
 
 (defstruct (config (:conc-name config.))
   (label nil :type (or string null))
-  
+  (display-value-in-label-p nil :type boolean)
+  (value nil :type t)
   (type nil :type (or clog:form-element-type null))
+  (radio-choices nil :type list) ;;only valid for radio input type
   (min nil :type (or integer null))
   (max nil :type (or integer null))
   (placeholder "" :type string)
@@ -62,31 +64,106 @@
               default)))
 
 (defmethod lisp-type->form-element-type ((instance standard-object) type)
-  (cond
-    ((subtypep type boolean) :checkbox)
-    ((and (listp type)
+)
+
+(defun config-finalize (config slotd)
+
+  ;; Add label if missing
+  (unless (config.label config)
+    (setf (config.label config) (to-string
+                                 (mop:slot-definition-name slotd))))
+
+  ;; handle element type
+  (unless (config.type config)
+    (let ((type (mop:slot-definition-type slotd)))
+      (cond
+        ;; checkbox
+        ((subtypep type 'boolean)
+         (setf (config.type config) :checkbox))
+
+        ;; radio
+        ((and 
+          (listp type)
           (eq 'member (first type)))
-     
-     ))
-  )
+         (setf (config.type config) :radio)
+         (when (null (config.radio-choices config))
+           (setf (config.radio-choices config) (rest type))))
+
+        ;; file-author
+        ((subtypep type 'pathname)
+         (setf (config.type config) :file)
+         (setf (config.html->lisp config) #'parse-namestring))
+
+        ;; integer
+        ((subtypep type 'integer)
+         (if (and (config.min config)
+                    (config.max config))
+           (setf (config.type config) :range)
+           ;;else
+           (progn
+             (setf (config.type config) :text)
+             (unless (config.pattern config)
+               (setf (config.pattern config) "/[0-9]*/")))))
+
+        ;; number
+        ((subtypep type 'real)
+         (setf (config.type config) :text)
+         (unless (config.pattern config)
+           (setf (config.pattern config) "/[0-9.]*/")))
+
+        (t
+         (setf (config.type config) :text))))))
 
 (defun class-ui* (slot-config-plist clog-obj instance &key (html-class ""))
   (let ((form (clog:create-form clog-obj :class html-class)))
-    (dolist (s (mop:class-slots (class-of instance)))
-      (let* ((name (mop:slot-definition-name s))
-             (c (getf* slot-config-plist name (make-config))))
-        (clog:create-form-element form )
-        )
-      ))
-  )
+    (dolist (slotd (mop:class-slots (class-of instance)))
+      (let* ((name (mop:slot-definition-name slotd))
+             (config (getf* slot-config-plist name
+                            (make-config))))
+        (config-finalize config slotd)
 
-(defmacro class-ui (slot-config-plist clog-obj instance))
+        (let ((label (clog:create-label
+                      form :content (config.label config))))
 
-(defun test-class-ui ()
-  (let ((p (make-instance 'person))))
-    (class-ui (:email (:type :email))
-              body instance
-              :class "container")
+          (case (config.type config)
+            ((:radio)
+             (let ((name (to-string (gensym "Radio"))))
+               (dolist (choice (config.radio-choices config))
+                 (clog:create-form-element
+                  :radio form :name name :label label
+                  :content (to-string choice))))
+             )
+            (otherwise
+             (let ((args
+                     (list form (config.type config)
+                           :placeholder (config.placeholder config))))
+               (a:when-let (min (config.min config))
+                 (a:appendf args (list :min min)))
+               (a:when-let (max (config.max config))
+                 (a:appendf args (list :max max)))
+               (a:when-let (class (config.class config))
+                 (a:appendf args (list :class class)))
+               (a:when-let (value (and (slot-boundp instance name)
+                                       (slot-value instance name)))
+                 (a:appendf
+                  args (list :value (funcall
+                                     (config.lisp->html config) value))))
+
+               (apply #'clog:create-form-element args)))))))))
+
+(defmacro class-ui (slot-config-plist clog-obj instance &key (html-class ""))
+  `(class-ui*
+    (list ,@(map-plist-values (lambda (args)
+                              (cons 'make-config args))
+                            slot-config-plist))
+    ,clog-obj ,instance :html-class ,html-class))
+
+(defun test-class-ui (body)
+  (let ((p (make-instance 'person)))
+    (class-ui* (list :email (make-config :type :email))
+               body p
+               :html-class "container")
+    )
   )
 
 
@@ -168,23 +245,25 @@
       (clog:html-document body)
       "https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css")
 
+     (test-class-ui body)
      
-     (let ((person (make-instance 'person :name "Bobby")))
-       (create-form-from-object
-        body person
-        (list :age (make-config :type :range
-                                :label "Person Age: ")
-              :name (make-config :placeholder "(Name....)"))
-        :form-class "container" )
+     ;; (let ((person (make-instance 'person :name "Bobby")))
+     ;;   (create-form-from-object
+     ;;    body person
+     ;;    (list :age (make-config :type :range
+     ;;                            :label "Person Age: ")
+     ;;          :name (make-config :placeholder "(Name....)"))
+     ;;    :form-class "container" )
 
-       (create-form-from-object*
-        body person (:age (:type :range :label "Person Age / v2 test: ")
-                     :name (:placeholder "(Name HERE....)")
-                     :phone (:validate-function
-                             (lambda (val)
-                               (every #'digit-char-p val)))))
+     ;;   (create-form-from-object*
+     ;;    body person (:age (:type :range :label "Person Age / v2 test: ")
+     ;;                 :name (:placeholder "(Name HERE....)")
+     ;;                 :phone (:validate-function
+     ;;                         (lambda (val)
+     ;;                           (every #'digit-char-p val)))))
 
-       )))
+     ;;   )
+     ))
   (clog:open-browser)
 )
 
