@@ -2,6 +2,8 @@
   (:use #:cl)
   (:import-from #:open-orders.utils
                 #:fn)
+  (:import-from #:introspect-environment
+                #:typexpand)
   (:import-from #:defclass-std
                 #:defclass/std
                 #:class/std)
@@ -140,17 +142,52 @@
     (dolist (input inputs)
       (clog:set-on-change
        input (fn (obj)
-               ;; TODO
-               ;; (setf ) (clog:radio-value container name)
-               )))))
+               (setf (slot-value instance slot-name)
+                     (clog:radio-value div name)))))))
 
-;; TODO create config/radio slot-ui method
+(defclass/std config/color (config) ())
 
+(defmethod slot-ui ((config config/color) container instance slot-name)
+  (let* ((label (clog:create-label container :content (label config)))
+         (input (clog:create-form-element container :color :label label)))
+
+    (clog:set-on-change
+     input (fn (obj)
+             (setf (slot-value instance slot-name)
+                   (clog:value input))))))
+
+(defclass/std config/list (config)
+  ((item-config :std (make-instance 'config/text :label ""))
+   (adjustable :std t)
+   (collapsible :std t)))
+(class/std item-box value)
+
+(defmethod slot-ui ((config config/list) container instance slot-name)
+  (let* (;; (div (clog:create-div container))
+         ;; (label (clog:create-label div :content (label config)))
+         (details (clog:create-details container))
+         (label (clog:create-summary details :content (label config))))
+    (when (slot-boundp instance slot-name)
+      ;; (unless (item-config config)
+      ;;   (setf (item-config config) (make-instance 'config/text)))
+
+      (dolist (item (slot-value instance slot-name))
+        (let ((item-box (make-instance 'item-box :value item)))
+
+          ;; TODO improve this so changes are actually forwarded to the things
+          (slot-ui (item-config config) details item-box 'value))))
+    )
+  )
+
+
+(defun diff (a b)
+  "returns the difference between two numbers"
+  (abs (- a b)))
 
 (defgeneric finalize-config (config instance slotd))
 (defmethod finalize-config ((config config) instance slotd)
   (let ((name (mop:slot-definition-name slotd))
-        (type (mop:slot-definition-type slotd)))
+        (type (typexpand (mop:slot-definition-type slotd))))
     (unless (label config)
       (setf (label config) (symbol-name name)))
     (unless (value config)
@@ -174,22 +211,42 @@
         ((subtypep type 'pathname)
          (change-class config 'config/filepicker))
 
+        ;; slider
+        ((and (subtypep type 'integer)
+              (listp type)
+              (= 3 (length type))
+              (numberp (second type))
+              (numberp (third type))
+              (< 1024 (diff (second type) (third type))))
+         (change-class config 'config/slider :min (second type)
+                                             :max (third type)))
+
         ;; integer
         ((subtypep type 'integer)
          (change-class config 'config/integer)
-         ;; (if (and (config.min config)
-         ;;          (config.max config))
-         ;;     (setf (config.type config) :range)
-         ;;     ;;else
-         ;;     (progn
-         ;;       (setf (config.type config) :text)
-         ;;       (unless (config.pattern config)
-         ;;         (setf (config.pattern config) "/[0-9]*/"))))
-         )
+         (when (listp type)
+           (when (and ( = (length type) 2)
+                      (numberp (second type)))
+             (setf (min-value config) (second type)))
+           
+           (when (and ( = (length type) 3)
+                      (numberp (second type))
+                      (numberp (third type)))
+             (setf (min-value config) (second type))
+             (setf (max-value config) (second type)))))
 
         ;; number
         ((subtypep type 'real)
-         (error "TODO"))
+         (change-class config 'config/number))
+
+        ;; object
+        ;; TODO
+
+        ;; list
+        ;; TODO
+
+        ;; hash table
+        ;; TODO
 
         (t
          (change-class config 'config/text))))))
@@ -215,7 +272,8 @@
   ((name hobbies siblings phone email address notes)
    (age :type integer)
    (in-prison :type boolean)
-   (papers :type pathname)))
+   (papers :type pathname)
+   (favorite-color)))
 
 (defvar *person* (make-instance 'person :name "John"))
 
@@ -231,7 +289,9 @@
      (class-ui (list :email (make-instance 'config/text :placeholder "foo@foo.com")
                      :age (make-instance 'config/slider :min 0 :max 100)
                      :siblings (make-instance 'config/radio
-                                              :options '(one two three four five+)))
+                                              :options '(one two three four five+))
+                     :favorite-color (make-instance 'config/color)
+                     :hobbies (make-instance 'config/list))
                *person* body)
        
 

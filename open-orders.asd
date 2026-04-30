@@ -8,12 +8,13 @@
                "closer-mop"
                "defclass-std"
                "marshal"
-               "sxql"
+               ;; "sxql"
                "cl-dbi"
                "sqlite"
                "uiop"
                "cl-pass"
-               "parse-float")
+               "parse-float"
+               "introspect-environment")
   :serial t
   :components ((:module "static-files"
                 :components ((:static-file "pico.min.css")))
