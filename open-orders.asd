@@ -12,7 +12,8 @@
                "cl-dbi"
                "sqlite"
                "uiop"
-               "cl-pass")
+               "cl-pass"
+               "parse-float")
   :serial t
   :components ((:module "static-files"
                 :components ((:static-file "pico.min.css")))

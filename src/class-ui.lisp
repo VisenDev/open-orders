@@ -11,40 +11,42 @@
 
 (declaim (optimize (debug 3) (safety 3)))
 
-
-;; input types
-;;    toggle
-;;    checkbox
-;;    filepicker
-;;    text-input
-;;    integer-input
-;;    decimal-input
-;;    slider
-;;    color-picker
-;;    date-picker
-
 (defclass/std config ()
   ((label)
    (value)))
 
 (defclass/std config/toggle (config)
-  ((type :std :switch :type (member :switch :checkbox))))
+  ((style
+    :std :checkbox
+    :type (member :switch :checkbox))))
 
 (defmethod slot-ui ((config config/toggle) container instance slot-name)
-  (let* ((label (clog:create-label container :content (label config)))
+  (let* ((div (clog:create-div container))
+         (label (clog:create-label div :content (label config)))
          (name (symbol-name (gensym "open-orders-toggle")))
          (input (clog:create-form-element
-                 container :checkbox :role (if (eq type :switch) "switch" "")
+                 div :checkbox :role (if (eq (style config) :switch) "switch" "")
                  :name name
+                 :label label
                  :value (if (value config) "on" "off"))))
-
-    (clog:label-for label input)
-    (clog:set-on-input
-     input (fn (obj)
-             (setf (slot-value instance slot-name)
-                   (clog:checkbox-value input name))))))
+    (clog:set-on-change
+     input
+     (fn (obj)
+       (setf (slot-value instance slot-name)
+             (clog:checkedp input))))))
 
 (defclass/std config/filepicker (config) ())
+
+(defmethod slot-ui ((config config/filepicker) container instance slot-name)
+  (let* ((label (clog:create-label container :content (label config)))
+         (input (clog:create-form-element
+                 container :file
+                 :label label)))
+    (clog:set-on-change
+     input (fn (obj)
+             (a:when-let (path (ignore-errors (pathname (clog:value input))))
+               (setf (slot-value instance slot-name)
+                     path))))))
 
 (defclass/std config/text (config)
   ((placeholder :std "" :type string)))
@@ -53,11 +55,11 @@
   (let* ((label (clog:create-label container :content (label config)))
          (input (clog:create-form-element
                  container :text
+                 :label label
                  :value (if (value config) (value config) "")
                  :placeholder (placeholder config))))
 
-    (clog:label-for label input)
-    (clog:set-on-input
+    (clog:set-on-change
      input (fn (obj)
              (setf (slot-value instance slot-name)
                    (clog:value input))))))
@@ -66,21 +68,84 @@
   ((min :accessor min-value :initarg :min :initform nil)
    (max :accessor max-value :initarg :max :initform nil)))
 
+(defmethod slot-ui ((config config/integer) container instance slot-name)
+  (let* ((label (clog:create-label container :content (label config)))
+         (args (list
+                container :number
+                :value (if (value config) (value config) 0)
+                :label label)))
+    (when (min-value config) (a:appendf args (list :min (min-value config))))
+    (when (max-value config) (a:appendf args (list :max (max-value config))))
+    (let ((input (apply #'clog:create-form-element args)))
+      (clog:set-on-change
+       input (fn (obj)
+               (a:when-let (val (ignore-errors (parse-integer (clog:value input))))
+                 (setf (slot-value instance slot-name) val)))))))
+
 (defclass config/number (config)
   ((min :accessor min-value :initarg :min :initform nil)
    (max :accessor max-value :initarg :max :initform nil)))
 
+(defmethod slot-ui ((config config/number) container instance slot-name)
+  (let* ((label (clog:create-label container :content (label config)))
+         (args (list
+                container :number
+                :value (if (value config) (value config) 0)
+                :label label)))
+    (when (min-value config) (a:appendf args (list :min (min-value config))))
+    (when (max-value config) (a:appendf args (list :max (max-value config))))
+    (let ((input (apply #'clog:create-form-element args)))
+      (clog:set-on-change
+       input (fn (obj)
+               (a:when-let (val (ignore-errors
+                                 (parse-float:parse-float (clog:value input) :type 'real)))
+                 (setf (slot-value instance slot-name) val)))))))
+
 (defclass config/slider (config)
-  ((min :accessor min-value :initarg :min :initform nil)
-   (max :accessor max-value :initarg :max :initform nil)))
+  ((min :accessor min-value :initarg :min
+        :initform (error "This slot is mandatory"))
+   (max :accessor max-value :initarg :max
+        :initform (error "This slot is mandatory"))))
+
+(defmethod slot-ui ((config config/slider) container instance slot-name)
+  (let* ((label (clog:create-label container :content (label config)))
+         (input (clog:create-form-element container :range
+                                          :label label
+                                          :value (or (value config) 0)
+                                          :min (min-value config)
+                                          :max (max-value config))))
+    
+    (clog:set-on-change
+     input (fn (obj)
+             (a:when-let (val (ignore-errors
+                               (parse-integer (clog:value input))))
+               (setf (clog:inner-html label)
+                     (format nil "~a: ~a" (label config) val))
+               (setf (slot-value instance slot-name) val))))))
 
 (defclass/std config/radio (config)
   ((options :type list)))
 
+(defmethod slot-ui ((config config/radio) container instance slot-name)
+  (let* ((div (clog:create-fieldset container))
+         (legend (clog:create-legend div :content (label config)))
+         (name (symbol-name (gensym "open-orders-radio")))
+         (inputs
+           (loop :for option :in (options config)
+                 :for radio-label = (clog:create-label div :content option)
+                 :collect
+                 (clog:create-form-element
+                  radio-label :radio :name name :auto-place :top))))
+    (declare (ignore legend))
+    (dolist (input inputs)
+      (clog:set-on-change
+       input (fn (obj)
+               ;; TODO
+               ;; (setf ) (clog:radio-value container name)
+               )))))
+
 ;; TODO create config/radio slot-ui method
 
-
-(defparameter *boolean-default-config* 'config/checkbox)
 
 (defgeneric finalize-config (config instance slotd))
 (defmethod finalize-config ((config config) instance slotd)
@@ -89,32 +154,29 @@
     (unless (label config)
       (setf (label config) (symbol-name name)))
     (unless (value config)
-      (when (slot-boundp instance name ))
-      (setf (value config) (slot-value instance name)))
+      (when (slot-boundp instance name)
+        (setf (value config) (slot-value instance name))))
     
     (when (eq (class-of config) (find-class 'config))
       (cond
         ;; checkbox / toggle
         ((subtypep type 'boolean)
-         (setf config
-               (change-class config *boolean-default-config*)))
+         (change-class config 'config/toggle))
 
         ;; radio
         ((and 
           (listp type)
           (eq 'member (first type)))
-         (setf config
-               (change-class config 'config/radio))
+         (change-class config 'config/radio)
          (setf (options config) (rest type)))
 
         ;; file-author
         ((subtypep type 'pathname)
-         (setf config
-               (change-class config 'config/filepicker)))
+         (change-class config 'config/filepicker))
 
         ;; integer
         ((subtypep type 'integer)
-         (error "TODO")
+         (change-class config 'config/integer)
          ;; (if (and (config.min config)
          ;;          (config.max config))
          ;;     (setf (config.type config) :range)
@@ -130,17 +192,7 @@
          (error "TODO"))
 
         (t
-         (setf config
-               (change-class config 'config/text)))))))
-
-;; (defmethod initialize-config ((config config) instance slotd)
-;;   (unless (label config)
-;;     (setf (label config) (symbol-name (mop:slot-definition-name slot-name))))
-
-;;   ;; handle element type
- 
-;;   )
-
+         (change-class config 'config/text))))))
 
 (defun getf* (plist symbol &optional default)
   "getf but it also checks using the keyword version of <symbol>"
@@ -159,11 +211,13 @@
         (finalize-config config instance slotd)
         (slot-ui config form instance name)))))
 
-
-
 (defclass/std person ()
-  ((age name hobbies siblings phone email address notes)
-   (in-prison :type boolean)))
+  ((name hobbies siblings phone email address notes)
+   (age :type integer)
+   (in-prison :type boolean)
+   (papers :type pathname)))
+
+(defvar *person* (make-instance 'person :name "John"))
 
 (defun test ()
 
@@ -174,10 +228,12 @@
       (clog:html-document body)
       "https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css")
 
-       (let ((p (make-instance 'person :name "John")))
-         (class-ui (list :email (make-instance 'config/text :placeholder "foo@foo.com"))
-                   p body)
-    )
+     (class-ui (list :email (make-instance 'config/text :placeholder "foo@foo.com")
+                     :age (make-instance 'config/slider :min 0 :max 100)
+                     :siblings (make-instance 'config/radio
+                                              :options '(one two three four five+)))
+               *person* body)
+       
 
      ;; (let ((person (make-instance 'person :name "Bobby")))
      ;;   (create-form-from-object
@@ -197,5 +253,5 @@
      ;;   )
      ))
   (clog:open-browser)
-)
+  )
 
