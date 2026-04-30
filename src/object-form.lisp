@@ -14,15 +14,46 @@
                     (#:mop #:closer-mop)))
 (in-package #:open-orders.object-form)
 
-(deftype element-type () '(member :slider :text :number))
+(declaim (optimize (debug 3) (safety 3)))
 
-(defstruct config
-  (type "")
-  (min 0 :type integer)
-  (max 100 :type integer)
+(deftype element-type ()
+  `(member :button
+           :checkbox
+           :color
+           :date
+           :datetime-local
+           :email
+           :file
+           :hidden
+           :image
+           :month
+           :number
+           :password
+           :radio
+           :range
+           :reset
+           :search
+           :submit
+           :tel
+           :text
+           :time
+           :url
+           :week))
+
+(declaim (ftype (function (t) string) to-string))
+(defun to-string (object)
+  (format nil "~a" object))
+
+(defstruct (config (:conc-name config.))
+  (type :text :type element-type)
+  (min nil :type (or integer null))
+  (max nil :type (or integer null))
   (placeholder "" :type string)
   (class "" :type string)
-  label)
+  (label nil :type (or string null))
+  (validate-function (constantly t))
+  (lisp-to-element #'to-string)
+  (element-to-lisp #'identity))
 
 (defun create-form-from-object (clog-obj instance slot-config-plist &key (form-class ""))
   (loop
@@ -32,26 +63,40 @@
     :for config = (or (getf slot-config-plist name)
                       (getf slot-config-plist (a:make-keyword name))
                       (make-config))
-    :for _ = (unless (config-label config) (setf (config-label config) name))
     :for div = (clog:create-div form)
-    :for label = (clog:create-label div :content (config-label config))
-    :for form-element = (clog:create-form-element
-                         div (config-type config)
-                         :placeholder (config-placeholder config))
-    :do (clog:label-for label form-element)
-        (a:when-let (val (and (slot-boundp instance name)
-                              (slot-value instance name)))
-          (setf (clog:value form-element) (format nil "~a" val)))
-        
-        (let ((form-element form-element)
-              (instance instance))
-          (clog:set-on-change
-           form-element
-           (lambda (obj)
-             (declare (ignore obj))
-             (setf (slot-value instance name)
-                   (clog:value form-element)))))
-    :collect form-element))
+    :for label = (clog:create-label div :content (or (config.label config) name))
+    :for args = (list div (config.type config)
+                      :placeholder (config.placeholder config))
+    :do (a:when-let (min (config.min config))
+          (a:appendf args (list :min min)))
+        (a:when-let (max (config.max config))
+          (a:appendf args (list :max max)))
+        (a:when-let (class (config.class config))
+          (a:appendf args (list :class class)))
+        (a:when-let (value (and (slot-boundp instance name)
+                                (slot-value instance name)))
+          (a:appendf
+           args (list :value (funcall
+                              (config.lisp-to-element config) value))))
+
+        (let ((form-element (apply #'clog:create-form-element args)))
+          (clog:label-for label form-element)
+          (let ((form-element form-element)
+                (instance instance)
+                (config config))
+            (clog:set-on-change
+             form-element
+             (lambda (obj)
+               (declare (ignore obj))
+               (if (funcall
+                        (config.validate-function config)
+                        (clog:value form-element))
+                   (progn (print "invalid")
+                          (setf (clog:color form-element) :red))   ;;; TODO, find a better way to show validity
+                 (setf (clog:color form-element) :black))
+               (setf (slot-value instance name)
+                     (funcall (config.element-to-lisp config)
+                              (clog:value form-element)))))))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun map-plist-values (function plist)
@@ -79,15 +124,26 @@
 
   (clog:initialize
    (lambda (body)
+
+     (clog:load-css
+      (clog:html-document body)
+      "https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css")
+
+     
      (let ((person (make-instance 'person :name "Bobby")))
        (create-form-from-object
         body person
-        (list :age (make-config :type :range :label "Person Age: ")
-              :name (make-config :placeholder "(Name....)")))
+        (list :age (make-config :type :range
+                                :label "Person Age: ")
+              :name (make-config :placeholder "(Name....)"))
+        :form-class "container" )
 
        (create-form-from-object*
         body person (:age (:type :range :label "Person Age / v2 test: ")
-                     :name (:placeholder "(Name HERE....)")))
+                     :name (:placeholder "(Name HERE....)")
+                     :phone (:validate-function
+                             (lambda (val)
+                               (every #'digit-char-p val)))))
 
        )))
   (clog:open-browser)
