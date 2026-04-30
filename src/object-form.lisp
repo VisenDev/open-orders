@@ -16,46 +16,84 @@
 
 (declaim (optimize (debug 3) (safety 3)))
 
-(deftype element-type ()
-  `(member :button
-           :checkbox
-           :color
-           :date
-           :datetime-local
-           :email
-           :file
-           :hidden
-           :image
-           :month
-           :number
-           :password
-           :radio
-           :range
-           :reset
-           :search
-           :submit
-           :tel
-           :text
-           :time
-           :url
-           :week))
+;; (deftype element-type ()
+;;   `(member :button
+;;            :checkbox
+;;            :color
+;;            :date
+;;            :datetime-local
+;;            :email
+;;            :file
+;;            :hidden
+;;            :image
+;;            :month
+;;            :number
+;;            :password
+;;            :radio
+;;            :range
+;;            :reset
+;;            :search
+;;            :submit
+;;            :tel
+;;            :text
+;;            :time
+;;            :url
+;;            :week))
 
 (declaim (ftype (function (t) string) to-string))
 (defun to-string (object)
   (format nil "~a" object))
 
 (defstruct (config (:conc-name config.))
-  (type :text :type element-type)
+  (label nil :type (or string null))
+  
+  (type nil :type (or clog:form-element-type null))
   (min nil :type (or integer null))
   (max nil :type (or integer null))
   (placeholder "" :type string)
   (class "" :type string)
-  (label nil :type (or string null))
-  (validate-function (constantly t))
-  (lisp-to-element #'to-string)
-  (element-to-lisp #'identity))
+  (pattern nil :type (or string null))
+  (lisp->html #'to-string)
+  (html->lisp #'identity))
+
+(defun getf* (plist symbol &optional default)
+  (getf plist symbol
+        (getf plist (a:make-keyword symbol)
+              default)))
+
+(defmethod lisp-type->form-element-type ((instance standard-object) type)
+  (cond
+    ((subtypep type boolean) :checkbox)
+    ((and (listp type)
+          (eq 'member (first type)))
+     
+     ))
+  )
+
+(defun class-ui* (slot-config-plist clog-obj instance &key (html-class ""))
+  (let ((form (clog:create-form clog-obj :class html-class)))
+    (dolist (s (mop:class-slots (class-of instance)))
+      (let* ((name (mop:slot-definition-name s))
+             (c (getf* slot-config-plist name (make-config))))
+        (clog:create-form-element form )
+        )
+      ))
+  )
+
+(defmacro class-ui (slot-config-plist clog-obj instance))
+
+(defun test-class-ui ()
+  (let ((p (make-instance 'person))))
+    (class-ui (:email (:type :email))
+              body instance
+              :class "container")
+  )
+
+
 
 (defun create-form-from-object (clog-obj instance slot-config-plist &key (form-class ""))
+
+  "Old version"
   (loop
     :with form = (clog:create-form clog-obj :class form-class)
     :for slot :in (mop:class-slots (class-of instance))
@@ -89,11 +127,11 @@
              (lambda (obj)
                (declare (ignore obj))
                (if (funcall
-                        (config.validate-function config)
-                        (clog:value form-element))
+                    (config.validate-function config)
+                    (clog:value form-element))
                    (progn (print "invalid")
-                          (setf (clog:color form-element) :red))   ;;; TODO, find a better way to show validity
-                 (setf (clog:color form-element) :black))
+                          (setf (clog:color form-element) :red)) ;;; TODO, find a better way to show validity
+                   (setf (clog:color form-element) :black))
                (setf (slot-value instance name)
                      (funcall (config.element-to-lisp config)
                               (clog:value form-element)))))))))
@@ -114,6 +152,7 @@
     (list ,@(map-plist-values (lambda (args)
                               (cons 'make-config args))
                             slot-config-plist))))
+
 
 
 ;;;; TEST
