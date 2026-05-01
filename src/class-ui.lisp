@@ -40,9 +40,10 @@
 (defclass/std config/filepicker (config) ())
 
 (defmethod slot-ui ((config config/filepicker) container instance slot-name)
-  (let* ((label (clog:create-label container :content (label config)))
+  (let* ((div (clog:create-div container))
+         (label (clog:create-label div :content (label config)))
          (input (clog:create-form-element
-                 container :file
+                 div :file
                  :label label)))
     (clog:set-on-change
      input (fn (obj)
@@ -54,9 +55,10 @@
   ((placeholder :std "" :type string)))
 
 (defmethod slot-ui ((config config/text) container instance slot-name)
-  (let* ((label (clog:create-label container :content (label config)))
+  (let* ((div (clog:create-div container))
+         (label (clog:create-label div :content (label config)))
          (input (clog:create-form-element
-                 container :text
+                 div :text
                  :label label
                  :value (if (value config) (value config) "")
                  :placeholder (placeholder config))))
@@ -282,9 +284,37 @@
   (clog:initialize
    (lambda (body)
 
+     ;; ;; Picocss
      (clog:load-css
       (clog:html-document body)
       "https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css")
+
+
+     ;; ;; Win 7
+     ;; (clog:load-css (clog:html-document body)
+     ;;                "https://unpkg.com/7.css")
+
+     ;; ;; Apple Classic
+     ;; (clog:load-css (clog:html-document body)
+     ;;                "https://unpkg.com/@sakun/system.css")
+
+     ;; NES
+     ;; (clog:load-css (clog:html-document body)
+     ;;                "https://unpkg.com/nes.css@latest/css/nes.min.css")
+
+     ;; XP
+     ;; (clog:load-css (clog:html-document body)
+     ;;                "https://unpkg.com/xp.css")
+
+     ;; 98
+     ;; (clog:load-css (clog:html-document body)
+     ;;                "https://unpkg.com/xp.css@0.2.3/dist/98.css")
+
+     ;; PS1
+     ; (clog:l
+     ;; (clog:
+     ;; (clog:load-css (clog:html-document body)
+     ;;                "https://cdn.jsdelivr.net/gh/98mprice/PSone.css@master/PSone.min.css")
 
      (class-ui (list :email (make-instance 'config/text :placeholder "foo@foo.com")
                      :age (make-instance 'config/slider :min 0 :max 100)
