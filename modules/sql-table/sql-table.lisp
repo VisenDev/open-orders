@@ -554,16 +554,16 @@
   (exec database-handle (make-query-statement classname ref-list)))
 
 
-(defun test ()
-  (query
-   'open-orders.tables:open-order
-   (list (make-ref
-          :slot 'open-orders.tables:purchase-order)
-         (make-ref :slot 'open-orders.tables:line-item)
-         (make-ref
-          :slot 'open-orders.tables:part
-          :foreign-refs
-          (list (make-ref
-                 :slot 'open-orders.tables:part-number))))))
+;; (defun test ()
+;;   (query
+;;    'open-orders.tables:open-order
+;;    (list (make-ref
+;;           :slot 'open-orders.tables:purchase-order)
+;;          (make-ref :slot 'open-orders.tables:line-item)
+;;          (make-ref
+;;           :slot 'open-orders.tables:part
+;;           :foreign-refs
+;;           (list (make-ref
+;;                  :slot 'open-orders.tables:part-number))))))
 
 

@@ -120,7 +120,7 @@
       ("order"
        (let ((id (insert (make-instance
                           'open-order
-                          :purchase-order (auth-token-create)))))
+                          :purchase-order (open-orders.auth:auth-token-create)))))
          (hunchentoot:redirect (format nil "/edit-order?id=~a" id))))
       (otherwise
        (h1 () "Error: don't know how to make a new '~a'" type)))))

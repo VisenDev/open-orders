@@ -6,7 +6,8 @@
         #:open-orders.templates)
   (:export
    #:perform-auth-check
-   #:with-internal-page))
+   #:with-internal-page
+   #:auth-token-create))
 (in-package #:open-orders.auth)
 
 (declaim (ftype (function () string) auth-token-create))
