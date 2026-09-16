@@ -31,7 +31,15 @@
    #:lisp-name->sql-name
    #:references-form-p
    #:select-all
-   #:*database-handle*))
+   #:*database-handle*
+   #:query
+   #:ref
+   #:make-ref
+   #:ref-p
+   #:copy-ref
+   #:ref-slot
+   #:ref-as
+   #:ref-foreign-refs))
 (in-package #:open-orders.sql-table)
 
 ;;;; ==== OPTIONAL DEPENDENCIES ====
@@ -459,14 +467,14 @@
        (funcall
         (statement-fetch-results-parse-function statement)
         (dbi:fetch-all query :format (if (statement-values-only-p statement) :values
-                                         :alist))))
+                                         :plist))))
       ((t)
        (unless (zerop (dbi:query-row-count query))
          (funcall (statement-fetch-results-parse-function statement)
                   (dbi:fetch query :format (if (statement-values-only-p
                                                 statement)
                                                :values
-                                               :alist)))))
+                                               :plist)))))
       ((nil) query))))
 
 
@@ -488,14 +496,19 @@
 
     ;; iterate over all foreign fields
     (dolist (ref ref-list)
+      (when (and (ref-as ref)
+                 (not (keyword-p (ref-as ref))))
+        (error "Requires ~a to be a keyword" (ref-as ref)))
       (let* ((column
                (table-lookup-column
                 table (ref-slot ref)))
              (_ (assert column))
              (primary-column-sql
-               (format nil "~a.~a AS ~a_~a"
+               (format nil "~a.~a AS ~a"
                        (table-name table) (column-name column)
-                       (table-name table) (column-name column)))
+                       (or (ref-as ref)
+                           (format nil "~a_~a"
+                                   (table-name table) (column-name column)))))
              (references (column-references column))
              (foreign-refs (ref-foreign-refs
                             ref)))
@@ -531,9 +544,12 @@
     (values columns joins)))
 
 
-(defun make-query-statement (classname ref-list)
+(defun make-query-statement (classname ref-list &key sort-by predicate)
   (let* ((class (find-finalized-class classname))
          (table (class->table class)))
+    (when (and sort-by
+               (not (keywordp sort-by)))
+      (error "sort-by value '~S' should be a keyword" sort-by))
     (multiple-value-bind (columns joins)
         (ref.sql.columns-and-joins table ref-list)
       (make-statement
@@ -548,10 +564,22 @@
        :values-only-p nil
        :fetch-results-parse-function
        (lambda (values)
-         values)
-       ))))
-(defun query (classname ref-list &key (database-handle *database-handle*))
-  (exec database-handle (make-query-statement classname ref-list)))
+         (if sort-by
+             (sort values (lambda (lhs-value rhs-value)
+                            (let ((lhs (getf lhs-value sort-by))
+                                  (rhs (getf rhs-value sort-by)))
+                              (cond (predicate
+                                     (funcall predicate lhs rhs))
+                                    ((and (or (null lhs) (stringp lhs))
+                                          (or (null rhs) (stringp rhs)))
+                                     (string-lessp lhs rhs))
+                                    (t (error "You must provide a predicate"))))))
+             values))))))
+(defun query (classname ref-list &key sort-by predicate
+                                   (database-handle *database-handle*))
+  (exec database-handle (make-query-statement classname ref-list
+                                              :sort-by sort-by
+                                              :predicate predicate)))
 
 
 ;; (defun test ()

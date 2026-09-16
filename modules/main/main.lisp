@@ -256,11 +256,20 @@
           (tr ()
             (th () (a (:href (table-header-href "name")) "Name"))
             (th () (a (:href "/new?type=Customer") (div (:class "border") "New"))))
+          
           (mapcar (lambda (customer)
-                    (let ((href (edit-customer-href (id customer))))
+                    (let ((href (edit-customer-href (getf customer :id))))
                       (tr ()
-                        (td () (a (:href href) (name customer))))))
-                  (get-customers-sorted-by sort-by reversed-p)))))))
+                        (td () (a (:href href) (getf customer :name))))))
+                  (query 'customer (list (make-ref :slot 'name :as :name)
+                                         (make-ref :slot 'id :as :id))
+                         :sort-by
+                         (cond ((string-equal sort-by "name") :name)
+                               (t nil))
+                         :predicate (lambda (lhs rhs)
+                                      (if reversed-p
+                                          (string-greaterp lhs rhs)
+                                          (string-lessp lhs rhs))))))))))
 
 (hunchentoot:define-easy-handler (inventory :uri "/inventory") ()
   (with-internal-page
