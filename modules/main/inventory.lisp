@@ -12,6 +12,9 @@
    ;; Path to the database on the file system
    #:*database-path*
 
+   ;; Extension mechanism for defining custom functions to perform atomic replace
+   #:*atomic-replace-file-function*
+
    ;; Hashtable of keyed by symbol-name of all tables
    #:*tables*
 
@@ -39,9 +42,13 @@
 (in-package #:open-orders.database)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (defvar *tables* (make-hash-table :test 'equal))
-  (defvar *file-extension* "sexp")
-  (defvar *database-path* "database/"))
+  (defvar *tables* (make-hash-table :test 'equal)))
+(defvar *file-extension* "sexp")
+(defvar *database-path* "database/")
+(defvar *atomic-replace-file-function* 'default-atomic-replace-file
+  "A function designator that takes two arguments, source and target. 
+   The 'source' file should be atomically renamed to 'target', overwriting
+   'target' if it already exists.")
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defstruct param
@@ -171,9 +178,12 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (require :sb-posix))
 
-;; Code ported from uiop, because rename can't replace a file on ecl
-(fn (rename-file-overwriting-target t) ((source pathname)
-                                        (target pathname))
+;; Default function that can atomically replace files,
+;; might not work on all implementations/platforms
+;; so custom atomic replace functions can be used
+;; by setting the *atomic-replace-file-function* variable
+(fn (default-atomic-replace-file t) ((source pathname)
+                                     (target pathname))
   #+(and sbcl (not win32))
   (sb-posix:rename source target)
 
@@ -300,8 +310,8 @@
                (format fp "~S" (1+ id)))
 
              ;; overwrite id file with tmp file
-             (rename-file-overwriting-target tmp-filename id-filename)
-
+             (funcall *atomic-replace-file-function*
+                      tmp-filename id-filename)
              id)
            
            )
@@ -334,7 +344,8 @@
 
     ;; rename tmp file on success
     (handler-case 
-        (progn (rename-file-overwriting-target tmp-pathname output-pathname)
+        (progn (funcall *atomic-replace-file-function*
+                        tmp-pathname output-pathname)
                ;; return id
                id)
       (file-error (e)
@@ -501,7 +512,7 @@
 ;;;; TESTS
 (define-table person
     ((field (first-name last-name email phone) :type string :initform "")
-     (field age :type integer)
+     (field age :type integer :initform 0)
      (field notes :type list))
   :conc-name p-)
 
