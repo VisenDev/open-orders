@@ -131,17 +131,32 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (require "syscalls"))
 
+#+(and sbcl (not win32))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (require :sb-posix))
+
 ;; Code ported from uiop, because rename can't replace a file on ecl
-(fn (rename-file-overwriting-target t) ((source pathname) (target pathname))
-  #+clisp (posix:copy-file source target :method :rename)
+(fn (rename-file-overwriting-target t) ((source pathname)
+                                        (target pathname))
+  #+(and sbcl (not win32))
+  (sb-posix:rename source target)
+
+  #+clisp
+  (posix:copy-file source target :method :rename)
+
   #+(and sbcl win32)
-  (when target (handler-case (delete-file target) (file-error () nil))) ;; not atomic
-  #-clisp
+  (progn
+    ;; Not atomic.
+    (handler-case
+        (delete-file target)
+      (file-error () nil))
+    (rename-file source target))
+
+  #-(or clisp sbcl)
   (rename-file source target
                #+(or clasp clozure ecl) :if-exists
-               #+clozure :rename-and-delete #+(or clasp ecl) t))
-
-
+               #+clozure :rename-and-delete
+               #+(or clasp ecl) t))
 
 ;;;; DATABASE IMPLEMENTATION
 (fn (valid-table-designator-char-p boolean) ((ch character))
@@ -181,34 +196,77 @@
           (unless (zerop (file-length fp))
             (read fp)))))))
 
+;; Lock file creation for syncronizing threads
+(fn (try-acquire-lock (or null stream)) ((pathname pathname))
+  (open pathname
+        :direction :output
+        :if-exists nil
+        :if-does-not-exist :create))
+
+(fn (acquire-lock t) ((pathname pathname))
+  (loop
+    :for stream = (try-acquire-lock pathname)
+    :when stream
+      :do (close stream)
+         (return)
+    :do (sleep 0.001)))
+
+(fn (release-lock t) ((pathname pathname))
+  (delete-file pathname))
+
+;; Finds free id using a NEXT-ID file
+;; Protected by an ID-LOCK file
 (fn (table-find-free-id integer) ((database-path (or pathname string))
-                            (table-name table-designator) &optional
-                            ((retries integer) 0))
+                                  (table-name table-designator))
 
-  (let* ((paths (directory
-                 (merge-pathnames
-                  (make-pathname :name :wild :type *file-extension*)
-                  (table-directory-get database-path table-name))))
-         (names (mapcar #'pathname-name paths))
-         (cl:*read-eval* nil)
-         (nums (mapcar #'read-from-string names))
-         (new-id
-           (if (endp nums)
-               0
-               (1+ (reduce #'max nums)))))
 
-    ;; Write file to reserve id from other threads
-    (handler-case
-        (with-open-file
-            (fp (table-filename-get database-path table-name new-id)
-                :direction :output
-                :if-exists :error
-                :if-does-not-exist :create)
-          new-id)
-      (file-error (err)
-        (if (< retries 3)
-            (table-find-free-id database-path table-name (1+ retries))
-            (error err))))))
+  (let* ((dir (table-directory-get database-path table-name))
+         (lock-filename (merge-pathnames "ID-LOCK" dir))
+         (id-filename (merge-pathnames "NEXT-ID" dir)))
+    (declare (dynamic-extent dir lock-filename id-filename))
+    
+    (acquire-lock lock-filename)
+    (unwind-protect
+         (progn
+           (unless (probe-file id-filename)
+             
+             ;; regenerate id file
+             (let* ((paths (directory
+                            (merge-pathnames
+                             (make-pathname :name :wild :type *file-extension*)
+                             (table-directory-get database-path table-name))))
+                    (names (mapcar #'pathname-name paths))
+                    (cl:*read-eval* nil)
+                    (nums (mapcar #'read-from-string names))
+                    (new-id
+                      (if (endp nums)
+                          0
+                          (1+ (reduce #'max nums)))))
+               (with-open-file (fp id-filename :if-does-not-exist :create
+                                               :direction :output)
+                 (format fp "~S" new-id))))
+
+           ;; read id
+           (let ((id (with-open-file (fp id-filename)
+                       (let ((cl:*read-eval* nil))
+                         (read fp))))
+                 (tmp-filename (merge-pathnames "NEXT-ID.tmp" dir)))
+             (assert (integerp id))
+
+             ;; write new id to tmp file
+             (with-open-file (fp tmp-filename
+                                 :direction :output
+                                 :if-exists :supersede
+                                 :if-does-not-exist :create)
+               (format fp "~S" (1+ id)))
+
+             ;; overwrite id file with tmp file
+             (rename-file-overwriting-target tmp-filename id-filename)
+
+             id)
+           
+           )
+      (release-lock lock-filename))))
 
 (fn (table-set t) ((database-path (or string pathname))
                    (table-value t)
@@ -355,15 +413,37 @@
 
 
 ;;;; TESTS
-(define-table person
-    ((field first-name :type string :initform "")
-     (field last-name :type string :initform "")
-     (field email :type string :initform "")
-     (field phone :type string :initform ""))
-  :conc-name p-)
+#+nil
+(progn
+  (define-table person
+      ((field first-name :type string :initform "")
+       (field last-name :type string :initform "")
+       (field email :type string :initform "")
+       (field phone :type string :initform ""))
+    :conc-name p-)
 
-(define-table customer
-    ((field name :type string :initform "")
-     (field contact :references person))
-  :conc-name c-)
+  (define-table customer
+      ((field name :type string :initform "")
+       (field contact :references person))
+    :conc-name c-)
 
+
+  (defun test-concurrent-person-inserts (&key (thread-count 10)
+                                           (persons-per-thread 1000))
+    (with-database "database/"
+      (let ((threads
+              (loop for thread-id below thread-count
+                    collect
+                    (bt:make-thread
+                     (lambda ()
+                       (loop for i below persons-per-thread
+                             do (set-person
+                                 (make-person
+                                  :first-name (format nil "First-~D-~D" thread-id i)
+                                  :last-name  (format nil "Last-~D-~D" thread-id i)
+                                  :email      (format nil "person-~D-~D@example.com"
+                                                      thread-id i)
+                                  :phone      (format nil "~D-~D" thread-id i)))))
+                     :name (format nil "person-writer-~D" thread-id)))))
+        (mapc #'bt:join-thread threads)
+        (* thread-count persons-per-thread)))))
