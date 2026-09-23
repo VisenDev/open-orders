@@ -4,26 +4,123 @@
 
 (defvar *tables* (make-hash-table :test 'equal))
 (defvar *file-extension* "sexp")
+(defvar *database-path* "database/")
 
-(defmacro fn (name params &body body)
+(defstruct param
+  (name nil :type symbol)
+  (type t)
+  (kind nil :type (member :required :optional :key :rest :aux))
+  initform)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun parse-typed-lambda-list (params)
+    (let ((state :required)
+          (results nil))
+      (loop :for val :in params
+            :do (case val
+                  (&optional (setf state :optional))
+                  (&key (setf state :key))
+                  (&rest (setf state :rest))
+                  (&aux (setf state :aux))
+                  (otherwise
+                   (case state
+                     (:required
+                      (cond ((listp val)
+                             (assert (= 2 (length val)))
+                             (push (make-param :name (first val)
+                                               :kind :required
+                                               :type (second val))
+                                   results))
+                            (t (push (make-param :name val
+                                                 :kind :required)
+                                     results))))
+                     ((:optional :key :aux)
+                      (cond ((and (listp val) (listp (car val)))
+                             (assert (= 2 (length (car val))))
+                             (push (make-param :name (first (first val))
+                                               :kind state
+                                               :type (second (first val))
+                                               :initform (second val))
+                                   results))
+                            ((listp val)
+                             (push (make-param :name (first (first val))
+                                               :kind state
+                                               :initform (second val))
+                                   results))
+                            (t (push (make-param :name val
+                                                 :kind state)
+                                     results))))
+
+                     (:rest
+                      (push (make-param :name val
+                                        :kind :rest)
+                            results))))))
+      (nreverse results)))
+
+  (defun generate-function-type (return-type parsed-typed-lambda-list)
+    (loop
+      :with results = nil
+      :with active-kind = :required
+      :for param :in parsed-typed-lambda-list
+      :for name = (param-name param)
+      :for type = (param-type param)
+      :for kind = (param-kind param)
+      :do (progn
+            (when (not (eq kind active-kind))
+              (case kind
+                (:optional (push '&optional results))
+                (:key (push '&key results))
+                (:rest (push '&rest results)))
+
+              (setf active-kind kind))
+            (ecase kind
+              ((:required :optional :rest) (push type results))
+              (:key (push (list (intern (symbol-name name) 'keyword) type)
+                          results))
+              (:aux))
+            results)
+      :finally
+         (return `(function ,(nreverse results) ,return-type))))
+  
+  (defun generate-function-lambda-list (parsed-typed-lambda-list)
+    (loop
+      :with results = nil
+      :with active-kind = :required
+      :for param :in parsed-typed-lambda-list
+      :for name = (param-name param)
+      :for kind = (param-kind param)
+      :for initform = (param-initform param)
+      :do (progn
+            (when (not (eq kind active-kind))
+              (push (ecase kind
+                      (:optional '&optional)
+                      (:key '&key)
+                      (:rest '&rest)
+                      (:aux '&aux))
+                    results)
+              (setf active-kind kind))
+            (push 
+             (ecase kind
+               ((:required :rest) name)
+               ((:optional :aux :key) (list name initform)))
+             results))
+      :finally
+         (return (nreverse results)))))
+
+(defmacro fn (name typed-lambda-list &body body)
   "name -> either a function name or a list of the form (function-name return-type),
-   params -> a typed parameter list equivalent to a defmethod parameter list
+   typed-lambda-list -> a typed parameter list like a defmethod parameter list
    body -> a normal function body"
   (let* ((function-name (if (listp name) (first name) name))
          (return-type (if (listp name) (second name) t))
-         (normalized-params (mapcar (lambda (param)
-                                      (if (listp param)
-                                          param
-                                          (list param t)))
-                                    params)))
-    `(progn (declaim (ftype (function
-                             ,(mapcar #'second normalized-params)
-                             ,return-type)
+         (params (parse-typed-lambda-list typed-lambda-list)))
+    `(progn (declaim (ftype ,(generate-function-type return-type params)
                             ,function-name))
-            (defun ,function-name ,(mapcar #'first normalized-params)
-              (declare ,@(mapcar (lambda (param) `
-                                   (type ,(second param) ,(first param)))
-                                 normalized-params))
+            (defun ,function-name ,(generate-function-lambda-list params)
+              (declare ,@(mapcar (lambda (param)
+                                   `(type ,(param-type param)
+                                          ,(param-name param)))
+                                 params))
               (the ,return-type (progn ,@body))))))
 
 (fn (valid-table-designator-char-p boolean) ((ch character))
@@ -35,10 +132,11 @@
 (deftype table-designator () 
   `(and symbol (satisfies valid-table-designator-p)))
 
-(fn (table-directory-get pathname) ((database-path (or string pathname))
-                                   (table-name table-designator))
+(fn (table-directory-get pathname)
+    ((database-path (or string pathname))
+     (table-name table-designator))
   (unless (string= (directory-namestring database-path)
-                        database-path)
+                   database-path)
     (error "database-path must end with a /"))
   (ensure-directories-exist
    (merge-pathnames (string-downcase
@@ -46,22 +144,24 @@
                     database-path)))
 
 (fn (table-filename-get pathname) ((database-path (or string pathname))
-                               (table-name table-designator)
-                               (id integer))
+                                   (table-name table-designator)
+                                   (id integer))
   (merge-pathnames
    (format nil "~a.~a" id *file-extension*)
    (table-directory-get database-path table-name)))
 
 (fn (table-get t) ((database-path (or string pathname))
-                                            (table-name table-designator)
-                                            (id integer))
+                   (table-name table-designator)
+                   (id integer))
   (let ((filename (table-filename-get database-path table-name id)))
     (when (probe-file filename)
       (with-open-file (fp filename)
         (let ((cl:*read-eval* nil))
           (read fp))))))
 
-(defun find-free-id (database-path table-name &optional (depth 0))
+(fn (find-free-id integer) ((database-path (or pathname string))
+                            (table-name table-designator) &optional
+                            ((depth integer) 0))
 
   (let* ((paths (directory
                  (merge-pathnames
@@ -149,7 +249,7 @@
                             (lambda (field)
                               (destructuring-bind
                                   (_ field-name &key type compare-function
-                                            initform references)
+                                                  initform references)
                                   field
                                 (declare (ignore _))
 
@@ -162,7 +262,7 @@
                                  :references references)))
                             fields))))))
 
-(defvar *database-path* "")
+
 (defmacro define-table (name fields &key conc-name)
   (let ((def (parse-table-definition name fields conc-name)))
     (setf (gethash (symbol-name name) *tables*) def)
@@ -172,26 +272,30 @@
                      (list (field-name f) (field-initform f)
                            :type (field-type f)))
             (table-fields def)))
-       
-       (defun ,(symbolicate 'get- (table-name def))
-           (id
-            &optional (database-path *database-path*))
-         (table-get database-path ',(table-name def) id))
-       
-       (defun ,(symbolicate 'set- (table-name def))
-           (,(table-name def)
-            &optional (database-path *database-path*))
-         (let ((id (,(table-id-accessor def) ,(table-name def))))
-           (unless id
-             (setf id (table-find-free-id database-path ',(table-name def)))
-             (setf (,(table-id-accessor def) ,(table-name def)) id))
-           (table-set database-path ,(table-name def) id)))
 
-       (defun ,(symbolicate 'get-every- (table-name def))
-           (&optional (database-path *database-path*))
-         (table-get-all database-path ',(table-name def))))))
+       ,(macroexpand
+         `(fn (,(symbolicate 'get- (table-name def)) (or null ,(table-name def)))
+             ((id integer)
+              &optional ((database-path (or string pathname)) *database-path*))
+           (table-get database-path ',(table-name def) id)))
 
-  
+       ,(macroexpand
+         `(fn (,(symbolicate 'set- (table-name def)) t)
+             ((,(table-name def) ,(table-name def))
+              &optional ((database-path (or string pathname)) *database-path*))
+           (let ((id (,(table-id-accessor def) ,(table-name def))))
+             (declare (type integer id))
+             (unless id
+               (setf id (table-find-free-id database-path ',(table-name def)))
+               (setf (,(table-id-accessor def) ,(table-name def)) id))
+             (table-set database-path ,(table-name def) id))))
+
+       ,(macroexpand
+         `(fn (,(symbolicate 'get-every- (table-name def)) list)
+             (&optional ((database-path (or string pathname)) *database-path*))
+           (table-get-all database-path ',(table-name def)))))))
+
+
 (define-table person
     ((field first-name :type string :initform "")
      (field last-name :type string :initform "")
@@ -200,52 +304,7 @@
   :conc-name p-)
 
 (define-table customer
-  ((field name :type string :initform "")
-   (field contact :references person))
+    ((field name :type string :initform "")
+     (field contact :references person))
   :conc-name c-)
 
-
-;; valid types
-;; (defmacro define-table (name (&body fields)
-;;                         (&key generate-pages-p))
-;;   `(progn
-;;      (defstruct ,name
-;;        ,@(mapcar (lambda (field)
-;;                    (if (listp field) `(,(first field) nil :type ,(second field))
-;;                        field))
-;;           fields))
-;;      ,(when generate-pages-p
-;;         `(hunchentoot:define-easy-handler (,name :uri ,(format nil "/~a/list" name))
-;;             ()
-;;           (perform-auth)
-;;            (let ((items (table-get-all 'name)))
-;;              (doctype ()
-;;                (head ())
-;;                (body ()
-;;                  (table ()
-;;                    (tr ()
-;;                      ,(mapcar (lambda (field)
-;;                                 `(th () ,(if (listp field) (first field) field))
-;;                                )
-;;                               fields))
-;;                    (mapcar (lambda (item)
-;;                              (tr ()
-;;                                ()
-;;                                )
-;;                              )
-;;                            items)))))
-;;           )))
-;;   )
-
-;; (define-table person
-;;     ((first-name string)
-;;       (last-name string)
-;;       (email string)
-;;       (phone string))
-;;     (:generate-pages-p t)
-;;     )
-
-;; (define-table customer
-;;     ((name integer)
-;;      (primary-contact person))
-;;     )
