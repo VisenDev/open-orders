@@ -1,5 +1,5 @@
 (defpackage #:open-orders.database
-  (:use #:cl)
+  (:use #:cl #:open-orders.fn)
   (:export
 
    ;; For defining new tables
@@ -29,6 +29,7 @@
    #:field-references
    #:field-metadata
    #:field-docs
+   #:field-namestring
 
    ;; Table structure
    #:table
@@ -38,7 +39,11 @@
    #:table-name
    #:table-id-accessor
    #:table-fields
-   #:table-conc-name))
+   #:table-conc-name
+   #:table-namestring
+   #:table-get-every-function
+   #:table-get-function
+   #:table-set-function))
 (in-package #:open-orders.database)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -49,125 +54,6 @@
   "A function designator that takes two arguments, source and target. 
    The 'source' file should be atomically renamed to 'target', overwriting
    'target' if it already exists.")
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defstruct param
-    (name nil :type symbol)
-    (type t)
-    (kind nil :type (member :required :optional :key :rest :aux))
-    initform)
-  
-  (defun parse-typed-lambda-list (params)
-    (let ((state :required)
-          (results nil))
-      (loop :for val :in params
-            :do (case val
-                  (&optional (setf state :optional))
-                  (&key (setf state :key))
-                  (&rest (setf state :rest))
-                  (&aux (setf state :aux))
-                  (otherwise
-                   (case state
-                     (:required
-                      (cond ((listp val)
-                             (assert (= 2 (length val)))
-                             (push (make-param :name (first val)
-                                               :kind :required
-                                               :type (second val))
-                                   results))
-                            (t (push (make-param :name val
-                                                 :kind :required)
-                                     results))))
-                     ((:optional :key :aux)
-                      (cond ((and (listp val) (listp (car val)))
-                             (assert (= 2 (length (car val))))
-                             (push (make-param :name (first (first val))
-                                               :kind state
-                                               :type (second (first val))
-                                               :initform (second val))
-                                   results))
-                            ((listp val)
-                             (push (make-param :name (first val)
-                                               :kind state
-                                               :initform (second val))
-                                   results))
-                            (t (push (make-param :name val
-                                                 :kind state)
-                                     results))))
-
-                     (:rest
-                      (push (make-param :name val
-                                        :kind :rest)
-                            results))))))
-      (nreverse results)))
-
-  (defun generate-function-type (return-type parsed-typed-lambda-list)
-    (loop
-      :with results = nil
-      :with active-kind = :required
-      :for param :in parsed-typed-lambda-list
-      :for name = (param-name param)
-      :for type = (param-type param)
-      :for kind = (param-kind param)
-      :do (progn
-            (when (not (eq kind active-kind))
-              (case kind
-                (:optional (push '&optional results))
-                (:key (push '&key results))
-                (:rest (push '&rest results)))
-
-              (setf active-kind kind))
-            (ecase kind
-              ((:required :optional :rest) (push type results))
-              (:key (push (list (intern (symbol-name name) 'keyword) type)
-                          results))
-              (:aux))
-            results)
-      :finally
-         (return `(function ,(nreverse results) ,return-type))))
-  
-  (defun generate-function-lambda-list (parsed-typed-lambda-list)
-    (loop
-      :with results = nil
-      :with active-kind = :required
-      :for param :in parsed-typed-lambda-list
-      :for name = (param-name param)
-      :for kind = (param-kind param)
-      :for initform = (param-initform param)
-      :do (progn
-            (when (not (eq kind active-kind))
-              (push (ecase kind
-                      (:optional '&optional)
-                      (:key '&key)
-                      (:rest '&rest)
-                      (:aux '&aux))
-                    results)
-              (setf active-kind kind))
-            (push 
-             (ecase kind
-               ((:required :rest) name)
-               ((:optional :aux :key) (list name initform)))
-             results))
-      :finally
-         (return (nreverse results)))))
-
-(defmacro fn (name typed-lambda-list &body body)
-  "name -> either a function name or a list of the form (function-name return-type),
-   typed-lambda-list -> a typed parameter list like a defmethod parameter list
-   body -> a normal function body"
-  (let* ((function-name (if (listp name) (first name) name))
-         (return-type (if (listp name) (second name) t))
-         (params (parse-typed-lambda-list typed-lambda-list)))
-    `(progn (declaim (ftype ,(generate-function-type return-type params)
-                            ,function-name))
-            (defun ,function-name ,(generate-function-lambda-list params)
-              (declare ,@(mapcar (lambda (param)
-                                   `(type ,(param-type param)
-                                          ,(param-name param)))
-                                 params))
-              (the ,return-type (progn ,@body))))))
-
-
 
 
 #+clisp
@@ -333,7 +219,8 @@
     (declare (dynamic-extent table-name directory tmp-pathname output-pathname))
     (handler-case
         (with-open-file (fp tmp-pathname :direction :output :if-exists :error)
-          (format fp "~S" table-value))
+          (let ((*package* (find-package 'cl)))
+            (format fp "~S" table-value)))
       (file-error (e)
         (if (> retries 3)
             (error e)
@@ -380,6 +267,7 @@
                   (name &key type compare-function initform
                           references metadata docs)))
     (name nil :type symbol)
+    (namestring "" :type string)
     accessor
     (type t)
     compare-function
@@ -389,7 +277,11 @@
     docs)
   (defstruct table
     (name nil :type table-designator)
+    (namestring "" :type string)
     id-accessor
+    get-every-function
+    get-function
+    set-function
     (fields nil :type list)
     (conc-name nil :type symbol)))
 
@@ -399,17 +291,19 @@
 ;;   (declare (ignore name type compare-function initform references)))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (defun symbolicate (&rest things)
-    (intern (string-upcase
-             (apply #'concatenate 'string
-                    (mapcar (lambda (thing) (format nil "~a" thing)) things)))))
-  (defun parse-table-definition (name field-forms conc-name)
+    (defun parse-table-definition (name field-forms conc-name id-field-metadata)
     (let ((conc-name (or conc-name (symbolicate name '-))))
       (make-table :name name
                   :conc-name conc-name
                   :id-accessor (symbolicate conc-name 'id)
+                  :get-every-function (symbolicate 'get-every- name)
+                  :get-function (symbolicate 'get- name)
+                  :set-function (symbolicate 'set- name)
+                  :namestring (string-downcase (symbol-name name))
                   :fields (cons
-                           (let ((id (field 'id :type '(or null integer))))
+                           (let ((id (field 'id :type '(or null integer)
+                                            :metadata id-field-metadata)))
+                             (setf (field-namestring id) "id")
                              (setf (field-accessor id)
                                    (symbolicate conc-name 'id))
                              id)
@@ -428,7 +322,7 @@
                                      (lambda (name)
                                        (push (cons 'field (cons name clauses))
                                              forms))
-                                            name-or-names)
+                                     name-or-names)
                                     (push field-form forms))
 
                                 ;; map all forms and derived forms
@@ -438,13 +332,16 @@
                                      (unless (field-accessor field)
                                        (setf (field-accessor field)
                                              (symbolicate conc-name
-                                                          (field-name field))))
+                                                          (field-name field)))
+                                       (setf (field-namestring field)
+                                             (string-downcase
+                                              (symbol-name (field-name field)))))
                                      (list field)))
                                  forms)))
                             field-forms))))))
 
 
-(defmacro define-table (name fields &key conc-name)
+(defmacro define-table (name fields &key conc-name id-field-metadata)
   "'fields' should be a list of s-expressions of the form
    (field <name> :type <type> ...etc...)
 
@@ -466,14 +363,15 @@
 
    For a complete list of field options, look at the definition of the 'field'
    struct. "
-  (let ((def (parse-table-definition name fields conc-name)))
+  (let ((def (parse-table-definition name fields conc-name id-field-metadata)))
     `(progn
        (eval-when (:compile-toplevel :load-toplevel :execute)
          (setf (gethash ,(symbol-name name) *tables*)
                (parse-table-definition
                 ',name
                 ',fields
-                ',conc-name)))
+                ',conc-name
+                ',id-field-metadata)))
        (defstruct (,(table-name def) (:conc-name ,(table-conc-name def)))
          ,@(mapcar (lambda (f)
                      (list (field-name f) (field-initform f)
@@ -481,13 +379,13 @@
             (table-fields def)))
 
        ,(macroexpand
-         `(fn (,(symbolicate 'get- (table-name def)) (or null ,(table-name def)))
+         `(fn (,(table-get-function def) (or null ,(table-name def)))
               ((id integer)
                &optional ((database-path (or string pathname)) *database-path*))
             (table-get database-path ',(table-name def) id)))
 
        ,(macroexpand
-         `(fn (,(symbolicate 'set- (table-name def)) t)
+         `(fn (,(table-set-function def) t)
               ((,(table-name def) ,(table-name def))
                &optional ((database-path (or string pathname)) *database-path*))
             (let ((id (,(table-id-accessor def) ,(table-name def))))
@@ -498,7 +396,7 @@
               (table-set database-path ,(table-name def) id))))
 
        ,(macroexpand
-         `(fn (,(symbolicate 'get-every- (table-name def))
+         `(fn (,(table-get-every-function def)
                (vector ,(table-name def) *))
               (&optional ((database-path (or string pathname)) *database-path*))
             (table-get-all database-path ',(table-name def)))))))
@@ -521,6 +419,7 @@
      (field contact :references person))
   :conc-name c-)
 
+;; Concurrent insert brute force test
 #+nil
 (defun test-concurrent-person-inserts (&key (thread-count 10)
                                          (persons-per-thread 1000))

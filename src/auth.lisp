@@ -1,14 +1,17 @@
 (defpackage #:open-orders.auth
   (:use #:cl
-        #:open-orders.sql-table
-        #:open-orders.pagen
-        #:open-orders.tables
-        #:open-orders.templates)
+        #:open-orders.html-generator
+        #:open-orders.templates
+        #:open-orders.database)
   (:export
    #:perform-auth-check
    #:with-internal-page
    #:auth-token-create))
 (in-package #:open-orders.auth)
+
+(define-table user
+    ((field (name password-hash auth-token)
+            :type string :initform "")))
 
 (declaim (ftype (function () string) auth-token-create))
 (defun auth-token-create ()
@@ -21,7 +24,7 @@
   (let ((token (hunchentoot:cookie-in *auth-cookie*)))
     (unless token
       (hunchentoot:redirect "/login"))
-    (let ((user (select 'user 'authentication-token token)))
+    (let ((user (find token (get-every-user) :test #'string= :key #'user-auth-token)))
       (unless user
         (hunchentoot:redirect "/login")))))
 
@@ -36,14 +39,15 @@
 
     ;; Attempt login
     (when (or username password)
-      (let ((user (select 'user 'name username)))
+      (let ((user (find username (get-every-user)
+                        :test #'string= :key #'user-name)))
         (cond
           ;; Success
-          ((and user (cl-pass:check-password password (hash user)))
-           (setf (authentication-token user) (auth-token-create))
-           (update user)
+          ((and user (cl-pass:check-password password (user-password-hash user)))
+           (setf (user-auth-token user) (auth-token-create))
+           (set-user user)
            (hunchentoot:set-cookie *auth-cookie*
-                                   :value (authentication-token user))
+                                   :value (user-auth-token user))
            (hunchentoot:redirect "/"))
 
           ;; User found but wrong password
@@ -61,7 +65,7 @@
       (when errmsg
         (p () errmsg))
       (form (:method "POST" :action "/login")
-        (table ()
+        (html-table ()
           (tr ()
             (td () (label (:for "username") "Username"))
             (td () (input (:type "text" :name "username"
@@ -79,3 +83,8 @@
      (with-page
        (h1 () "Campro Open Orders")
        ,@body)))
+
+(defun user-create-new (name password)
+  (set-user (make-user
+             :name name
+             :password-hash (cl-pass:hash password))))
