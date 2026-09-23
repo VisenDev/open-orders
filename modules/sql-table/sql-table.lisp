@@ -497,7 +497,7 @@
     ;; iterate over all foreign fields
     (dolist (ref ref-list)
       (when (and (ref-as ref)
-                 (not (keyword-p (ref-as ref))))
+                 (not (keywordp (ref-as ref))))
         (error "Requires ~a to be a keyword" (ref-as ref)))
       (let* ((column
                (table-lookup-column

@@ -190,6 +190,7 @@
                    (table-name table-designator)
                    (id integer))
   (let ((filename (table-filename-get database-path table-name id)))
+    (declare (dynamic-extent filename))
     (when (probe-file filename)
       (with-open-file (fp filename)
         (let ((cl:*read-eval* nil))
@@ -251,6 +252,7 @@
                        (let ((cl:*read-eval* nil))
                          (read fp))))
                  (tmp-filename (merge-pathnames "NEXT-ID.tmp" dir)))
+             (declare (dynamic-extent tmp-filename))
              (assert (integerp id))
 
              ;; write new id to tmp file
@@ -268,11 +270,11 @@
            )
       (release-lock lock-filename))))
 
-(fn (table-set t) ((database-path (or string pathname))
-                   (table-value t)
-                   (id integer)
-                   &optional
-                   ((retries integer) 0))
+(fn (table-set integer) ((database-path (or string pathname))
+                         (table-value t)
+                         (id integer)
+                         &optional
+                         ((retries integer) 0))
   (let* ((table-name (class-name (class-of table-value)))
          (directory (truename (table-directory-get database-path table-name)))
          (tmp-pathname (merge-pathnames
@@ -281,6 +283,7 @@
          (output-pathname (merge-pathnames
                            (format nil "~a.~a" id *file-extension*)
                            directory)))
+    (declare (dynamic-extent table-name directory tmp-pathname output-pathname))
     (handler-case
         (with-open-file (fp tmp-pathname :direction :output :if-exists :error)
           (format fp "~S" table-value))
@@ -294,7 +297,9 @@
 
     ;; rename tmp file on success
     (handler-case 
-        (rename-file-overwriting-target tmp-pathname output-pathname)
+        (progn (rename-file-overwriting-target tmp-pathname output-pathname)
+               ;; return id
+               id)
       (file-error (e)
 
         ;; clean up tempfile if rename fails and output pathname still exists
