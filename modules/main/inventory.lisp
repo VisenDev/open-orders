@@ -1,6 +1,42 @@
-(defpackage #:open-orders.main.inventory
-  (:use #:cl #:open-orders.pagen #:open-orders.tables))
-(in-package #:open-orders.main.inventory)
+(defpackage #:open-orders.database
+  (:use #:cl)
+  (:export
+
+   ;; For defining new tables
+   #:define-table
+   #:field
+
+   ;; File extension of database files, defaults to .sexp
+   #:*file-extension*
+
+   ;; Path to the database on the file system
+   #:*database-path*
+
+   ;; Hashtable of keyed by symbol-name of all tables
+   #:*tables*
+
+   ;; Field structure
+   #:field-p
+   #:copy-field
+   #:field-name
+   #:field-accessor
+   #:field-type
+   #:field-compare-function
+   #:field-initform
+   #:field-references
+   #:field-metadata
+   #:field-docs
+
+   ;; Table structure
+   #:table
+   #:make-table
+   #:table-p
+   #:copy-table
+   #:table-name
+   #:table-id-accessor
+   #:table-fields
+   #:table-conc-name))
+(in-package #:open-orders.database)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defvar *tables* (make-hash-table :test 'equal))
@@ -159,14 +195,15 @@
                #+(or clasp ecl) t))
 
 ;;;; DATABASE IMPLEMENTATION
-(fn (valid-table-designator-char-p boolean) ((ch character))
-  (or (alphanumericp ch) (char= #\_ ch) (char= #\- ch)))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (fn (valid-table-designator-char-p boolean) ((ch character))
+    (or (alphanumericp ch) (char= #\_ ch) (char= #\- ch)))
 
-(fn (valid-table-designator-p boolean) ((symbol symbol))
-  (every #'valid-table-designator-char-p (symbol-name symbol)))
+  (fn (valid-table-designator-p boolean) ((symbol symbol))
+    (every #'valid-table-designator-char-p (symbol-name symbol)))
 
-(deftype table-designator () 
-  `(and symbol (satisfies valid-table-designator-p)))
+  (deftype table-designator () 
+    `(and symbol (satisfies valid-table-designator-p))))
 
 (fn (table-directory-get pathname)
     ((database-path (or string pathname))
@@ -329,13 +366,16 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defstruct (field
               (:constructor field
-                  (name &key type compare-function initform references)) )
+                  (name &key type compare-function initform
+                          references metadata docs)))
     (name nil :type symbol)
     accessor
     (type t)
     compare-function
     initform
-    references)
+    references
+    metadata
+    docs)
   (defstruct table
     (name nil :type table-designator)
     id-accessor
@@ -362,18 +402,59 @@
                              (setf (field-accessor id)
                                    (symbolicate conc-name 'id))
                              id)
-                           (mapcar
+                           (mapcan
                             (lambda (field-form)
                               (assert (eq 'field (first field-form)))
-                              (let ((field (apply #'field (cdr field-form))))
-                                (unless (field-accessor field)
-                                  (setf (field-accessor field)
-                                        (symbolicate conc-name (field-name field))))
-                                field))
+                              
+                              (let ((name-or-names (second field-form))
+                                    (clauses (cddr field-form))
+                                    (forms nil))
+
+                                ;; check for list of names
+                                ;; creating a copy of clauses for each name
+                                (if (listp name-or-names)
+                                    (mapcar
+                                     (lambda (name)
+                                       (push (cons 'field (cons name clauses))
+                                             forms))
+                                            name-or-names)
+                                    (push field-form forms))
+
+                                ;; map all forms and derived forms
+                                (mapcan
+                                 (lambda (form)
+                                   (let ((field (apply #'field (cdr form))))
+                                     (unless (field-accessor field)
+                                       (setf (field-accessor field)
+                                             (symbolicate conc-name
+                                                          (field-name field))))
+                                     (list field)))
+                                 forms)))
                             field-forms))))))
 
 
 (defmacro define-table (name fields &key conc-name)
+  "'fields' should be a list of s-expressions of the form
+   (field <name> :type <type> ...etc...)
+
+   The field declaration at the beginning is so that slime
+   will help you know what keyword arguments are allowed
+
+   Also note that multiple names may be specified if <name> is
+   a list of names rather than just one name, in which case
+   many similar fields can be defined quickly, ie,
+
+   (define-table vec2 
+     ((field (x y) :type float :initform 0.0f0)))
+
+   ;; is equivalent to
+
+   (define-table vec2 
+     ((field x :type float :initform 0.0f0)
+      (field y :type float :initform 0.0f0)))
+
+   For a complete list of field options, look at the definition of the 'field'
+   struct. "
   (let ((def (parse-table-definition name fields conc-name)))
     `(progn
        (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -418,37 +499,34 @@
 
 
 ;;;; TESTS
+(define-table person
+    ((field (first-name last-name email phone) :type string :initform "")
+     (field age :type integer)
+     (field notes :type list))
+  :conc-name p-)
+
+(define-table customer
+    ((field (name description) :type string :initform "")
+     (field contact :references person))
+  :conc-name c-)
+
 #+nil
-(progn
-  (define-table person
-      ((field first-name :type string :initform "")
-       (field last-name :type string :initform "")
-       (field email :type string :initform "")
-       (field phone :type string :initform ""))
-    :conc-name p-)
-
-  (define-table customer
-      ((field name :type string :initform "")
-       (field contact :references person))
-    :conc-name c-)
-
-
-  (defun test-concurrent-person-inserts (&key (thread-count 10)
-                                           (persons-per-thread 1000))
-    (with-database "database/"
-      (let ((threads
-              (loop for thread-id below thread-count
-                    collect
-                    (bt:make-thread
-                     (lambda ()
-                       (loop for i below persons-per-thread
-                             do (set-person
-                                 (make-person
-                                  :first-name (format nil "First-~D-~D" thread-id i)
-                                  :last-name  (format nil "Last-~D-~D" thread-id i)
-                                  :email      (format nil "person-~D-~D@example.com"
-                                                      thread-id i)
-                                  :phone      (format nil "~D-~D" thread-id i)))))
-                     :name (format nil "person-writer-~D" thread-id)))))
-        (mapc #'bt:join-thread threads)
-        (* thread-count persons-per-thread)))))
+(defun test-concurrent-person-inserts (&key (thread-count 10)
+                                         (persons-per-thread 1000))
+  (with-database "database/"
+    (let ((threads
+            (loop for thread-id below thread-count
+                  collect
+                  (bt:make-thread
+                   (lambda ()
+                     (loop for i below persons-per-thread
+                           do (set-person
+                               (make-person
+                                :first-name (format nil "First-~D-~D" thread-id i)
+                                :last-name  (format nil "Last-~D-~D" thread-id i)
+                                :email      (format nil "person-~D-~D@example.com"
+                                                    thread-id i)
+                                :phone      (format nil "~D-~D" thread-id i)))))
+                   :name (format nil "person-writer-~D" thread-id)))))
+      (mapc #'bt:join-thread threads)
+      (* thread-count persons-per-thread))))
