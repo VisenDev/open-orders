@@ -88,7 +88,6 @@
     (hunchentoot:stop *acceptor*)
     (setf *acceptor* nil)))
 
-
 (defun main ()
   (start)
   (unwind-protect (loop (sleep 1))

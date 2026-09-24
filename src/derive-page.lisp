@@ -18,6 +18,8 @@
    #:derive-edit-page-from-table))
 (in-package #:open-orders.derive-page)
 
+(defvar *max-columns-on-mobile* 3)
+
 (fn (geta t) (item (alist list) &key (test #'equal))
   "Alist equivalent to getf"
   (cdr (assoc item alist :test test)))
@@ -62,64 +64,106 @@
        (hunchentoot:define-easy-handler
            (,(open-orders.fn:symbolicate table-name '-list)
             :uri ,(generate-table-url def "list"))
-           (sort-by reverse)
-         (with-internal-page
-           (hr ())
-           (html-table ()
-             (tr ()
-               (td ()
-                 (form (:action ,(format nil "/~a/new" (table-namestring def)))
-                   (input (:type "submit"
-                           :value ,(format nil "new ~a" (table-namestring def))))))))
-           (hr ())
-           (html-table ()
+           (sort-by reverse search clear)
+         (when clear (setf search nil))
+         (let ((mobilep (mobile-browser-p))
+               (new-form
+                 (td ()
+                   (form (:action ,(format nil "/~a/new" (table-namestring def)))
+                     (input
+                      (:type "submit"
+                       :value ,(format nil "new ~a" (table-namestring def)))))))
+               (list-form (td ()
+                            (form (:action ,(table-url def "list"))
+                              (input (:type "text"
+                                      :name "search"
+                                      :value (if search search "")))
+                              (input (:type "submit"
+                                      :value "Search"))
+                              (when search
+                                (input (:type "submit"
+                                        :name "clear"
+                                        :value "Clear")))))))
+           (declare (ignorable mobilep))
+           (with-internal-page
+             (hr ())
+             (html-table ()
+               (if mobilep
+                   (list (tr () new-form)
+                         (tr () list-form))
+                   (tr ()
+                     new-form list-form)))
+             (hr ())
+             (html-table (:class "border")
 
-             ;; table header
-             (tr ()
-               ,@(mapcar
-                  (lambda (field)
-                    `(th ()
-                       (a (:href
-                           ,(generate-table-url
-                             def "list"
-                             :sort-by (field-namestring field)
-                             :reverse '(if (string= reverse "true") "false" "true")))
-                         ',(field-name field))))
-                  listed-fields))
-
-             ;; table body
-             (loop
-               :for val
-                 :across
-                 (let* ((sorted (sort (open-orders.database::table-get-all
-                                       *database-path* ',table-name)
-                                      (lambda (a b)
-                                        ;; todo, use the fields handler
-                                        (string< (format nil "~a" a)
-                                                 (format nil "~a" b)))
-                                      :key
-                                      (cond 
-                                        ,@(mapcar
-                                           (lambda (f)
-                                             `((string= sort-by
-                                                        ,(field-namestring f))
-                                               (function ,(field-accessor f)))
-                                             )
-                                           (table-fields def)))))
-                        (reversed (if (string= reverse "true")
-                                      (nreverse sorted)
-                                      sorted)))
-                   reversed)
-               :collect
+               ;; table header
                (tr ()
-                 ,@(mapcar (lambda (field)
-                             `(td ()
+                 ,@(loop :for field :in listed-fields
+                         :for i :from 0
+                         :collect
+                         `(unless ,(if (< i *max-columns-on-mobile*)
+                                       nil
+                                       'mobilep)
+                            (th ()
+                              (a (:href
+                                  (if
+                                   search
+                                   ,(generate-table-url
+                                     def "list"
+                                     :sort-by (field-namestring field)
+                                     :reverse '(if (string= reverse "true")
+                                                "false" "true")
+                                     :search 'search)
+                                   ,(generate-table-url
+                                     def "list"
+                                     :sort-by (field-namestring field)
+                                     :reverse '(if (string= reverse "true")
+                                                "false" "true"))))
+                                ,(format nil "[~a]" (field-namestring field)))))))
+
+               ;; table body
+               (loop
+                 :for val
+                   :across
+                   (let* ((sorted (sort (if search
+                                            (remove-if-not
+                                             (lambda (value)
+                                               (search
+                                                search
+                                                (format nil "~a" value)))
+                                             (,(table-get-every-function def)))
+                                            (,(table-get-every-function def)))
+                                        (lambda (a b)
+                                          ;; todo, use the fields handler
+                                          (string< (format nil "~a" a)
+                                                   (format nil "~a" b)))
+                                        :key
+                                        (cond 
+                                          ,@(mapcar
+                                             (lambda (f)
+                                               `((string= sort-by
+                                                          ,(field-namestring f))
+                                                 (function ,(field-accessor f)))
+                                               )
+                                             (table-fields def)))))
+                          (reversed (if (string= reverse "true")
+                                        (nreverse sorted)
+                                        sorted)))
+                     reversed)
+                 :collect
+                 (tr ()
+                   ,@(loop :for field :in listed-fields
+                           :for i :from 0
+                           :collect
+                           `(unless ,(if (< i *max-columns-on-mobile*)
+                                         nil
+                                         'mobilep)
+                              (td ()
                                 (a (:href ,(generate-table-url
                                             def
                                             "edit"
                                             :id `(,(table-id-accessor def) val)))
-                                  (,(field-accessor field) val))))
-                           listed-fields)))))))))
+                                  (,(field-accessor field) val))))))))))))))
 
 (defmacro derive-new-page-from-table (table-name)
   (let ((def (find-table table-name)))
@@ -198,7 +242,12 @@
                (td ()
                  (button (:type "submit" :name "redirect-url"
                           :value (hunchentoot:request-uri*))
-                   "save"))))
+                   "save"))
+               (td ()
+                 (button (:command "show-modal"
+                          :commandfor "confirm-delete"
+                          :type "button")
+                   "delete"))))
            (hr ())
            (html-table ()
              ,@(mapcar
@@ -214,5 +263,14 @@
                                           ((subtypep type 'boolean) "checkbox")
                                           (t "text"))))))))
                 (remove "id" (table-fields def) :key #'field-namestring
-                                                :test #'string=))))))))
+                                                :test #'string=)))
+
+           ;; delete modal
+           (dialog (:id "confirm-delete")
+             (button ()
+               "Yes, I want to delete this")
+             (button (:command "close"
+                      :commandfor "confirm-delete"
+                      :type "button")
+               "Cancel")))))))
 

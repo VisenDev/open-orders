@@ -11,7 +11,7 @@
 
 * {
     box-sizing: border-box;
-    font-family: sans-serif;
+    font-family: monospace;
     font-size: 18px;
     background-color: var(--background-color);
 }
@@ -19,16 +19,21 @@
 a {
     pad: var(--pad);
     color: var(--foreground-color);
+    text-decoration: none;
 }
 
 a:hover {
     color: var(--hover-color);
 }
 
-.border {
-    border: 2px solid var(--foreground-color);
-}
+/* .border { */
+/*     border: 2px solid var(--foreground-color); */
+/* } */
 
 button:hover {
     background-color: var(--hover-color);
+}
+
+th {
+    text-align: left;
 }
