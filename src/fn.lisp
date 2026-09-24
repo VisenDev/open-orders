@@ -116,7 +116,9 @@
    body -> a normal function body"
   (let* ((function-name (if (listp name) (first name) name))
          (return-type (if (listp name) (second name) t))
-         (params (parse-typed-lambda-list typed-lambda-list)))
+         (params (parse-typed-lambda-list typed-lambda-list))
+         (docstring (when (stringp (first body)) (first body)))
+         (body (if docstring (rest body) body)))
     `(progn (declaim (ftype ,(generate-function-type return-type params)
                             ,function-name))
             (defun ,function-name ,(generate-function-lambda-list params)
@@ -124,4 +126,7 @@
                                    `(type ,(param-type param)
                                           ,(param-name param)))
                                  params))
-              (the ,return-type (progn ,@body))))))
+              ,@(cond (docstring
+                       `(,docstring
+                         (the ,return-type (progn ,@body))))
+                      (t `((the ,return-type (progn ,@body)))))))))

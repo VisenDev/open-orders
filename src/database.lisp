@@ -44,7 +44,10 @@
    #:table-get-every-function
    #:table-get-function
    #:table-set-function
-   #:table-constructor))
+   #:table-constructor
+
+   ;; Table lookup
+   #:find-table))
 (in-package #:open-orders.database)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -55,6 +58,11 @@
   "A function designator that takes two arguments, source and target. 
    The 'source' file should be atomically renamed to 'target', overwriting
    'target' if it already exists.")
+
+(fn (find-table (or table null)) ((table-name symbol))
+  (gethash (symbol-name table-name) *tables*))
+(defun (setf find-table) (new-value table-name)
+  (setf (gethash (symbol-name table-name) *tables*) new-value))
 
 
 #+clisp
@@ -369,7 +377,7 @@
   (let ((def (parse-table-definition name fields conc-name id-field-metadata)))
     `(progn
        (eval-when (:compile-toplevel :load-toplevel :execute)
-         (setf (gethash ,(symbol-name name) *tables*)
+         (setf (find-table ',name)
                (parse-table-definition
                 ',name
                 ',fields

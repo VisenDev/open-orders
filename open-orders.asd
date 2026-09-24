@@ -16,5 +16,6 @@
                   (:file "html-generator")
                   (:file "templates")
                   (:file "auth")
+                  (:file "derive-page")
                   (:file "main")))))
 
