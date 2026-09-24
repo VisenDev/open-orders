@@ -15,13 +15,29 @@
 
 (defvar *acceptor* nil)
 
+(define-table customer
+    ((field name
+            :type string :initform "lorem ipsum"
+            :metadata (:show-in-list-view-p t))
+     (field primary-contact-name
+            :type string :initform ""
+            :metadata (:show-in-list-view-p t))
+     (field (email phone)
+            :type string :initform ""
+            :metadata (:show-in-list-view-p t))))
+
 (define-table order
-    ((field po-number :type string :initform ""
+    ((field po-number :type string :initform "lorem ipsum"
                       :metadata (:show-in-list-view-p t))
      (field customer :type string :initform ""
                      :metadata (:show-in-list-view-p t))
-     (field customer-id :type integer :initform -1))
-  :id-field-metadata (:show-in-list-view-p t))
+     (field customer-id :type integer :initform -1)
+     (field part-number :type string :initform ""
+                        :metadata (:show-in-list-view-p t))))
+
+(defun geta (item alist &key (test #'equal))
+  "Alist equivalent to getf"
+  (cdr (assoc item alist :test test)))
 
 (defmacro derive-pages-from-table
     (table-name (save-endpoint-var edit-value-var edit-endpoint-parameters)
@@ -34,6 +50,24 @@
                          (table-fields def))))
     (assert def)
     `(progn
+       (pushnew (make-tab :name ,(format nil "[~a list]" (table-namestring def))
+                          :url ,(format nil "/~a/list" (table-namestring def)))
+                *toplevel-tabs* :test #'equalp)
+       
+       ;; new page
+       (hunchentoot:define-easy-handler
+           (,(open-orders.fn:symbolicate table-name '-new)
+            :uri ,(format nil "/~a/new" (table-namestring def)))
+           ()
+         (perform-auth-check)
+
+         (let* ((new (,(table-constructor def)))
+                (id (,(table-set-function def) new)))
+           (hunchentoot:redirect (format nil "/~a/edit?id=~a"
+                                         ,(table-namestring def)
+                                         id)
+                                 :code 303)))
+       
        ;; landing page
        (hunchentoot:define-easy-handler
            (,(open-orders.fn:symbolicate table-name '-list)
@@ -41,7 +75,13 @@
            (sort-by reverse)
          (with-internal-page
            (hr ())
-           (p () ,(format nil "~a" table-name))
+           (html-table ()
+             (tr ()
+               (td ()
+                 (form (:action ,(format nil "/~a/new" (table-namestring def)))
+                   (input (:type "submit"
+                           :value ,(format nil "new ~a" (table-namestring def))))))))
+           (hr ())
            (html-table ()
 
              ;; table header
@@ -95,9 +135,25 @@
        (hunchentoot:define-easy-handler
            (,(open-orders.fn:symbolicate table-name '-save)
             :uri ,(format nil "/~a/save" (table-namestring def)))
-           ()
-         (let ((params (hunchentoot:post-parameters*)))
-           (format nil "~a" params)
+           (id)
+         (let* ((params (hunchentoot:post-parameters*))
+                (id (parse-integer id))
+                (redirect-url (geta "redirect-url" params))
+                (val (,(table-get-function def) id)))
+
+           ;; iterate over all fields, getting thier values from
+           ;; parameters and setting them when non-null
+           ,@(mapcar (lambda (field)
+                       `(let ((,(field-name field)
+                                (geta ,(field-namestring field) params)))
+                          (when ,(field-name field)
+                            (setf (,(field-accessor field) val)
+                                  ,(field-name field))))
+                       )
+                     (table-fields def))
+           (,(table-set-function def) val)
+
+           (hunchentoot:redirect redirect-url :code 303)
            )
          ;; get post parameters
          ;; perform save
@@ -109,16 +165,52 @@
            (,(open-orders.fn:symbolicate table-name '-edit)
             :uri (format nil "/~a/edit" ,(table-namestring def)))
            (id ,@edit-endpoint-parameters)
-         (let ((,save-endpoint-var ,(format nil "/~a/save" table-name))
+         (let ((,save-endpoint-var (format nil "/~a/save?id=~a"
+                                           ,(table-namestring def)
+                                           id))
                (,edit-value-var (,(table-get-function def) (parse-integer id))))
            (declare (ignorable ,save-endpoint-var ,edit-value-var))
            ,@edit-endpoint-definition)))))
 
+
+;; Derivations
 (derive-pages-from-table order (save-url order-value ())
   (with-internal-page
     (hr ())
     (p () "You've reached the edit page!")
     (p () (format nil "~a" order-value))))
+
+(derive-pages-from-table customer (save-url val ())
+  (with-internal-page
+    (hr ())
+    (form (:method "post" :action save-url)
+      (html-table ()
+        (tr ()
+          (td ()
+            (button (:type "submit" :name "redirect-url"
+                     :value "/customer/list")
+              "back"))
+          (td ()
+            (button (:type "submit" :name "redirect-url"
+                     :value (hunchentoot:request-uri*))
+              "save"))))
+      (hr ())
+      (html-table ()
+        (tr ()
+          (td () "Name:")
+          (td () (input (:name "name" :value (customer-name val)))))
+        (tr ()
+          (td () "Primary-Contact:")
+          (td () (input (:name "primary-contact-name"
+                         :value (customer-primary-contact-name val)))))
+        (tr ()
+          (td () "Email:")
+          (td () (input (:name "email"
+                         :value (customer-email val)))))
+        (tr ()
+          (td () "Phone:")
+          (td () (input (:name "phone"
+                         :value (customer-phone val)))))))))
 
 (hunchentoot:define-easy-handler (home :uri "/") ()
   (hunchentoot:redirect "/order/list"))

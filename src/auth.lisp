@@ -23,10 +23,12 @@
 (defun perform-auth-check ()
   (let ((token (hunchentoot:cookie-in *auth-cookie*)))
     (unless token
-      (hunchentoot:redirect "/login"))
+      (hunchentoot:redirect "/login")
+      (assert nil))
     (let ((user (find token (get-every-user) :test #'string= :key #'user-auth-token)))
       (unless user
-        (hunchentoot:redirect "/login")))))
+        (hunchentoot:redirect "/login")
+        (assert nil)))))
 
 (hunchentoot:define-easy-handler (logout :uri "/logout") ()
   (hunchentoot:set-cookie *auth-cookie* :value nil)
@@ -81,7 +83,7 @@
   `(progn
      (perform-auth-check)
      (with-page
-       (h1 () "Campro Open Orders")
+       (insert-toplevel-tabs)
        ,@body)))
 
 (defun user-create-new (name password)

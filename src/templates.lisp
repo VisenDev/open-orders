@@ -2,8 +2,19 @@
   (:use #:cl
         #:open-orders.html-generator)
   (:export
-   #:with-page))
+   #:with-page
+   #:*toplevel-tabs*
+   #:tab
+   #:make-tab
+   #:tab-p
+   #:copy-tab
+   #:tab-name
+   #:tab-url
+   #:insert-toplevel-tabs))
 (in-package #:open-orders.templates)
+
+(defstruct tab name url)
+(defvar *toplevel-tabs* nil)
 
 ;; CSS loader handler
 (hunchentoot:define-easy-handler (css :uri "/orders.css") ()
@@ -26,3 +37,10 @@
            ,@body)))))
 
 
+(defun insert-toplevel-tabs ()
+  (html-table ()
+    (tr ()
+      (mapcar (lambda (tab)
+                (a (:href (tab-url tab))
+                  (tab-name tab)))
+              *toplevel-tabs*))))

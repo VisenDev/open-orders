@@ -43,7 +43,8 @@
    #:table-namestring
    #:table-get-every-function
    #:table-get-function
-   #:table-set-function))
+   #:table-set-function
+   #:table-constructor))
 (in-package #:open-orders.database)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -278,6 +279,7 @@
   (defstruct table
     (name nil :type table-designator)
     (namestring "" :type string)
+    constructor
     id-accessor
     get-every-function
     get-function
@@ -300,9 +302,10 @@
                   :get-function (symbolicate 'get- name)
                   :set-function (symbolicate 'set- name)
                   :namestring (string-downcase (symbol-name name))
+                  :constructor (symbolicate 'make- name)
                   :fields (cons
                            (let ((id (field 'id :type '(or null integer)
-                                            :metadata id-field-metadata)))
+                                                :metadata id-field-metadata)))
                              (setf (field-namestring id) "id")
                              (setf (field-accessor id)
                                    (symbolicate conc-name 'id))
