@@ -14,7 +14,7 @@
 (in-package #:open-orders.templates)
 
 (defstruct tab name url)
-(defvar *toplevel-tabs* nil)
+(defparameter *toplevel-tabs* nil)
 
 ;; CSS loader handler
 (hunchentoot:define-easy-handler (css :uri "/orders.css") ()
@@ -40,7 +40,8 @@
 (defun insert-toplevel-tabs ()
   (html-table ()
     (tr ()
-      (mapcar (lambda (tab)
-                (a (:href (tab-url tab))
-                  (tab-name tab)))
-              *toplevel-tabs*))))
+       (mapcar (lambda (tab)
+                 (td ()
+                   (a (:href (tab-url tab))
+                     (tab-name tab))))
+                 *toplevel-tabs*))))

@@ -59,10 +59,11 @@
    The 'source' file should be atomically renamed to 'target', overwriting
    'target' if it already exists.")
 
-(fn (find-table (or table null)) ((table-name symbol))
-  (gethash (symbol-name table-name) *tables*))
-(defun (setf find-table) (new-value table-name)
-  (setf (gethash (symbol-name table-name) *tables*) new-value))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (fn (find-table (or table null)) ((table-name symbol))
+    (gethash (symbol-name table-name) *tables*))
+  (defun (setf find-table) (new-value table-name)
+    (setf (gethash (symbol-name table-name) *tables*) new-value)))
 
 
 #+clisp

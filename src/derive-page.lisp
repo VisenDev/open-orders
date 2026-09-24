@@ -33,8 +33,11 @@
         `(format nil ,(apply #'concatenate 'string (table-url def page)
                              (when parameter-plist "?")
                              (loop :for (key value) :on parameter-plist :by #'cddr
-                                   :collect (string-downcase
-                                             (format nil "~a=~~a" key))))
+                                   :appending (list (string-downcase
+                                                     (format nil "~a=~~a" key))
+                                                    "&")
+                                   :into forms
+                                   :finally (return (butlast forms))))
                  ,@(loop :for (key value) :on parameter-plist :by #'cddr
                          :collect (if (stringp value)
                                       (url-encode value)
@@ -52,7 +55,7 @@
 
        ;; Add Toplevel Url
        ,(when create-toplevel-link
-          `(pushnew (make-tab :name ,(format nil "[~a list]" (table-namestring def))
+          `(pushnew (make-tab :name ,(format nil " [~a] " (table-namestring def))
                               :url ,(generate-table-url def "list"))
                     *toplevel-tabs* :test #'equalp))
 
@@ -143,13 +146,26 @@
 
          ;; iterate over all fields, getting their values from
          ;; parameters and setting them when non-null
-         ,@(mapcar (lambda (field)
-                     `(let ((field-value (geta ,(field-namestring field) params)))
-                        (when field-value
-                          (setf (,(field-accessor field) val)
-                                field-value)))
-                     )
-                   (table-fields def))
+         ,@(mapcar
+            (lambda (field)
+              `(let ((,(field-name field) (geta ,(field-namestring field) params)))
+                 (when ,(field-name field)
+                   (setf (,(field-accessor field) val)
+
+                         ;; TODO handle converting this from a string better
+                         ;; TODO add a metadata option for the conversion
+                         ,(let ((type (field-type field)))
+                            (cond
+                              ((subtypep type 'integer)
+                               `(parse-integer ,(field-name field) :junk-allowed t))
+                              ((subtypep type 'boolean)
+                               `(string= "on" ,(field-name field)))
+                              ((subtypep type 'string) (field-name field))
+                              (t (error
+                                  "Don't know how to convert this type
+                                          from a string"))))))))
+                   (remove "id" (table-fields def) :key #'field-namestring
+                                                   :test #'string=))
          (,(table-set-function def) val)
 
          (hunchentoot:redirect redirect-url :code 303)))))
@@ -191,6 +207,12 @@
                      (td () ,(field-namestring field))
                      (td ()
                        (input (:name ,(field-namestring field)
-                               :value (,(field-accessor field) table-value))))))
-                (table-fields def))))))))
+                               :value (,(field-accessor field) table-value)
+                               :type ,(let ((type (field-type field)))
+                                        (cond
+                                          ((subtypep type 'number) "number")
+                                          ((subtypep type 'boolean) "checkbox")
+                                          (t "text"))))))))
+                (remove "id" (table-fields def) :key #'field-namestring
+                                                :test #'string=))))))))
 
