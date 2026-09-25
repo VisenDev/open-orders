@@ -203,12 +203,48 @@
          (hunchentoot:redirect ,(generate-table-url def "edit" :id 'id)
                                :code 303)))))
 
+(defun coerce-form-data-to-type (form-data-string type)
+  (cond
+    ((eq type 'date)
+     (let ((year (subseq form-data-string 0 4))
+            (month (subseq form-data-string 5 7))
+            (day (subseq form-data-string 8 10)))
+        (or (ignore-errors
+             (encode-universal-time
+              0 0 0
+              (parse-integer day)
+              (parse-integer month)
+              (parse-integer year)))
+            (get-universal-time))))
+    ((subtypep type 'integer)
+     (parse-integer form-data-string :junk-allowed t))
+    ((subtypep type 'boolean)
+     (string= "on" form-data-string))
+    ((or (subtypep type 'string)
+         (eq type t))
+     form-data-string)
+    (t
+     (error "Don't know how to convert the type '~a' from a string" type))))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun generate-form-deserializer-for-field (post-parameters-varname
+                                               table-value-varname field)
+    `(let ((field-form-value (geta ,(field-namestring field)
+                                   ,post-parameters-varname)))
+       (when field-form-value
+         (setf (,(field-accessor field) ,table-value-varname)
+               (coerce-form-data-to-type field-form-value
+                                         ',(if (field-references field)
+                                               'integer
+                                               (field-type field))))))))
+
 (defmacro derive-save-page-from-table (table-name)
   (let ((def (find-table table-name)))
     `(hunchentoot:define-easy-handler
          (,(open-orders.fn:symbolicate table-name '-save)
-          :uri ,(format nil "/~a/save" (table-namestring def)))
+          :uri ,(table-url def "save"))
          (id)
+       
        (let* ((params (hunchentoot:post-parameters*))
               (id (parse-integer id))
               (redirect-url (geta "redirect-url" params))
@@ -216,31 +252,16 @@
 
          ;; iterate over all fields, getting their values from
          ;; parameters and setting them when non-null
-         ,@(mapcar
-            (lambda (field)
-              `(let ((,(field-name field) (geta ,(field-namestring field) params)))
-                 (when ,(field-name field)
-                   (setf (,(field-accessor field) val)
+         ,@(mapcar (lambda (field) (generate-form-deserializer-for-field
+                                    'params 'val field))
+                   
+                   (remove "id" (table-fields def) :key #'field-namestring
+                                                   :test #'string=))
 
-                         ;; TODO handle converting this from a string better
-                         ;; TODO add a metadata option for the conversion
-                         ,(let ((type (field-type field)))
-                            (cond
-                              ((or (subtypep type 'integer)
-                                   (field-references field))
-                               `(parse-integer ,(field-name field) :junk-allowed t))
-                              ((subtypep type 'boolean)
-                               `(string= "on" ,(field-name field)))
-                              ((or (subtypep type 'string)
-                                   (eq type t))
-                               (field-name field))
-                              (t
-                               (error
-                                "Don't know how to convert the type '~a' from a string" type))))))))
-            (remove "id" (table-fields def) :key #'field-namestring
-                                            :test #'string=))
+         ;; Save Value
          (,(table-set-function def) val)
 
+         ;; Redirect (get, post, redirect pattern)
          (hunchentoot:redirect redirect-url :code 303)))))
 
 (defmacro define-edit-page-for-table (table-name get-parameters
@@ -256,6 +277,60 @@
          (declare (ignorable ,save-endpoint-variable ,edit-value-variable))
          ,@body))))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun generate-form-input-from-field (&key namestring references
+                                           metadata type value)
+    (tr ()
+       (td () namestring)
+       (td ()
+         (if references
+
+             ;; Dropdown for foreign tables
+             (select (:name namestring)
+               ;; Foreign table definition lookup
+               (loop
+                 :with foreign-def = (find-table references)
+                 :with get-every = (table-get-every-function foreign-def)
+                 :for foreign-table-value :across (funcall get-every)
+                 :for foreign-id
+                   = (funcall (table-id-accessor foreign-def)
+                              foreign-table-value)
+
+                 :for option-body =
+                                  (if (getf metadata :display-as)
+                                      (ignore-errors
+                                       (funcall (getf metadata :display-as)
+                                                foreign-table-value))
+                                      foreign-table-value)
+                                  
+                                  ;; collect html options for each foreign value
+                 :collect
+
+                 ;; eql not '=', since foreign id may
+                 ;; be nil
+                 (if (eql foreign-id value
+                          ;; (,(field-accessor field)
+                          ;;  table-value)
+                          )
+                     (option (:selected "selected"
+                              :value foreign-id)
+                       option-body)
+
+                     ;; else the id is not the currently
+                     ;; chosen id
+                     (option (:value foreign-id)
+                       option-body))))
+             
+             ;; else if the field doesn't reference any table
+             ;; Just make it an input not a dropdown
+             (input (:name namestring
+                      :value value
+                      :type (cond
+                              ((eq type 'date) "date")
+                              ((subtypep type 'number) "number")
+                              ((subtypep type 'boolean) "checkbox")
+                              (t "text")))))))))
+
 (defmacro derive-edit-page-from-table (table-name)
   (let ((def (find-table table-name))) 
     `(define-edit-page-for-table ,table-name () (save-url table-value)
@@ -265,7 +340,7 @@
            (html-table ()
              (tr ()
                (td ()
-                 (button (:type "submit" :name "redirect-url"
+                 (Button (:type "submit" :name "redirect-url"
                           :value ,(table-url def "list"))
                    "back"))
                (td ()
@@ -281,63 +356,16 @@
            (html-table ()
 
              ;; Create a edit row for table field
-             ,@(mapcar
-                (lambda (field)
-                  `(tr ()
-                     (td () ,(field-namestring field))
-                     (td ()
-                       ,(if (field-references field)
-
-                            ;; Dropdown for foreign tables
-                            `(select (:name ,(field-namestring field))
-                               ,(let ((foreign-def
-                                       (find-table
-                                        (field-references field))))
-                                  ;; Foreign table definition lookup
-                                  `(loop
-                                     :for foreign-table-value
-                                       :across (,(table-get-every-function foreign-def))
-                                     :for foreign-id
-                                       = (,(table-id-accessor foreign-def)
-                                                      foreign-table-value)
-
-                                     :for option-body =
-                                     ,(if (getf (field-metadata field) :display-as)
-                                          `(ignore-errors
-                                            (,(getf (field-metadata field) :display-as)
-                                             foreign-table-value))
-                                          'foreign-table-value)
-
-                                     ;; collect html options for each foreign value
-                                     :collect
-
-                                     ;; eql not '=', since foreign id may
-                                     ;; be nil
-                                     (if (eql foreign-id
-                                              (,(field-accessor field)
-                                               table-value))
-                                         (option (:selected "selected"
-                                                  :value foreign-id)
-                                           option-body)
-
-                                         ;; else the id is not the currently
-                                         ;; chosen id
-                                         (option (:value foreign-id)
-                                           option-body)))))
-                            
-                            ;; else if the field doesn't reference any table
-                            ;; Just make it an input not a dropdown
-                            `(input (:name ,(field-namestring field)
-                                     :value (,(field-accessor field) table-value)
-                                     :type ,(let ((type (field-type field)))
-                                              (cond
-                                                ((subtypep type 'number) "number")
-                                                ((subtypep type 'boolean) "checkbox")
-                                                (t "text")))))))))
-
-                ;; Don't let the id field be editable
-                (remove "id" (table-fields def) :key #'field-namestring
-                                                :test #'string=)))
+             ,@(loop :for field :in (remove "id" (table-fields def)
+                                            :key #'field-namestring
+                                            :test #'string=)
+                     :collect
+                     `(generate-form-input-from-field
+                       :namestring ,(field-namestring field)
+                       :metadata ',(field-metadata field)
+                       :references ',(field-references field)
+                       :type ',(field-type field)
+                       :value (,(field-accessor field) table-value))))
 
            ;; delete modal for deleting a record
            (dialog (:id "confirm-delete")

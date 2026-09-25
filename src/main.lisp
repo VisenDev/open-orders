@@ -1,10 +1,9 @@
 (cl:defpackage #:open-orders.main
   (:use #:cl
+        #:open-orders.fn
         #:open-orders.html-generator
         #:open-orders.database
         #:open-orders.derive-page
-        ;; #:open-orders.sql-table
-        ;; #:open-orders.tables
         #:open-orders.templates
         #:open-orders.auth
         )
@@ -15,6 +14,27 @@
 (in-package #:open-orders.main)
 
 (defvar *acceptor* nil)
+
+(fn (universal-time->date-string string) ((timestamp date))
+  (multiple-value-bind (second minute hour
+                        date month year day)
+      (decode-universal-time timestamp)
+    (declare (ignore second minute hour day))
+    (format nil "~a ~a, ~a"
+            (nth month
+                 '("January"
+                   "February"
+                   "March"
+                   "April"
+                   "May"
+                   "June"
+                   "July"
+                   "August"
+                   "September"
+                   "October"
+                   "November"
+                   "December"))
+            date year)))
 
 (define-table customer
     ((field name
@@ -33,9 +53,13 @@
           :metadata (:show-in-list-view-p t))))
 
 (define-table employee
-  ((field (first-name last-name birthday phone email date-hired)
+  ((field (first-name last-name phone email)
           :type string :initform ""
-          :metadata (:show-in-list-view-p t))))
+          :metadata (:show-in-list-view-p t))
+    (field (birthday date-hired)
+           :type date :initform (get-universal-time)
+           :metadata (:show-in-list-view-p t
+                      :display-as universal-time->date-string))))
 
 (define-table purchase-order
   ((field (code company description date-placed)
@@ -77,31 +101,6 @@
                   :metadata (:show-in-list-view-p t))))
 
 (derive-all-pages po-details)
-
-;; (define-table shipping-schedule
-;;     ((po-details :references po-details :display-as po-details-purchase-order)))
-
-;; (define-table order
-;;     ((field po-number :type string :initform "lorem ipsum"
-;;                       :metadata (:show-in-list-view-p t))
-;;      (field customer :type string :initform ""
-;;                      :metadata (:show-in-list-view-p t))
-;;      (field customer-id :type integer :initform -1)
-;;      (field part-number :type string :initform ""
-;;                         :metadata (:show-in-list-view-p t))))
-
-
-;; (derive-list-page-from-table order)
-;; (derive-new-page-from-table order)
-;; (derive-save-page-from-table order)
-
-
-;; Derivations
-;; (derive-pages-from-table order (save-url order-value ())
-;;   (with-internal-page
-;;     (hr ())
-;;     (p () "You've reached the edit page!")
-;;     (p () (format nil "~a" order-value))))
 
 (hunchentoot:define-easy-handler (home :uri "/") ()
   (hunchentoot:redirect (table-url (find-table 'order) "list")))

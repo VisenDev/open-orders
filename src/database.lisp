@@ -47,7 +47,8 @@
    #:table-constructor
 
    ;; Table lookup
-   #:find-table))
+   #:find-table
+   #:date))
 (in-package #:open-orders.database)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -58,6 +59,8 @@
   "A function designator that takes two arguments, source and target. 
    The 'source' file should be atomically renamed to 'target', overwriting
    'target' if it already exists.")
+
+(deftype date () 'integer)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (fn (find-table (or table null)) ((table-name symbol))
