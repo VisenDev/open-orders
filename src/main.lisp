@@ -38,13 +38,25 @@
 
 (define-table customer
     ((field name
-            :type string :initform "lorem ipsum"
+            :type string :initform (open-orders.random:full-name)
             :metadata (:show-in-list-view-p t))
      (field primary-contact-name
-            :type string :initform ""
+            :type string :initform (open-orders.random:full-name)
             :metadata (:show-in-list-view-p t))
-     (field (email phone)
-            :type string :initform ""
+     (field address
+            :type string :initform (format nil "~a ~a"
+                                           (+ 100 (random 1000))
+                                           (open-orders.random:street)))
+     (field phone
+            :type string :initform (format
+                                    nil "~a"
+                                    (open-orders.random:n-digit-number 10))
+            :metadata (:show-in-list-view-p t))
+     (field email
+            :type string :initform (format
+                                    nil "~a@~a.com"
+                                    (open-orders.random::first-name)
+                                    (open-orders.random::last-name))
             :metadata (:show-in-list-view-p t))))
 
 (define-table inventory
@@ -53,16 +65,27 @@
           :metadata (:show-in-list-view-p t))))
 
 (define-table employee
-  ((field (first-name last-name phone email)
+  ((field name
+          :type string :initform (open-orders.random:full-name)
+          :metadata (:show-in-list-view-p t))
+    (field (phone email)
           :type string :initform ""
           :metadata (:show-in-list-view-p t))
-    (field (birthday date-hired)
-           :type date :initform (get-universal-time)
-           :metadata (:show-in-list-view-p t
-                      :display-as universal-time->date-string))))
+   (field (birthday date-hired)
+          :type date :initform (get-universal-time)
+          :metadata (:show-in-list-view-p t
+                     :display-as universal-time->date-string))))
 
 (define-table purchase-order
-  ((field (code company description date-placed)
+  ((field (date-placed)
+          :type date :initform (- (get-universal-time)
+                                  (random 100000))
+          :metadata (:show-in-list-view-p t
+                     :display-as universal-time->date-string))
+   (field supplier
+          :type string :initform (open-orders.random:full-name)
+          :metadata (:show-in-list-view-p t))
+   (field description
           :type string :initform ""
           :metadata (:show-in-list-view-p t))))
 
@@ -85,14 +108,25 @@
     ((field customer-id :references customer
                         :metadata (:display-as customer-name
                                    :show-in-list-view-p t))
-     (field purchase-order :type string :initform ""
+     (field purchase-order :type string
+                           :initform (format
+                                      nil "~a"
+                                      (open-orders.random:n-digit-number
+                                       (+ 4 (random 3))))
                            :metadata (:show-in-list-view-p t))
-     (field line-item :type integer :initform 1
+     (field line-item :type integer :initform (random 5)
                       :metadata (:show-in-list-view-p t))
-     (field part-number :type string :initform ""
+     (field part-number :type string
+                        :initform
+            (format
+             nil "~a"
+             (open-orders.random:n-digit-number
+              (+ 4 (random 3))))
                         :metadata (:show-in-list-view-p t))
-     (field revision :type string :initform "")
-     (field price-each :type string :initform "")
+     (field revision :type string :initform (open-orders.random:capital-letter))
+     (field price-each :type string
+                       :initform (format nil "~a.~a" (random 3)
+                                         (open-orders.random:n-digit-number 2)))
      (field ship-terms :type string :initform "Freight Collect")
      (field billing-terms :type string :initform "Net30")
      (field material-type :type string :initform "")

@@ -18,7 +18,7 @@
    #:derive-edit-page-from-table))
 (in-package #:open-orders.derive-page)
 
-(defvar *max-columns-on-mobile* 3)
+(defparameter *max-columns-on-mobile* 2)
 
 (fn (geta t) (item (alist list) &key (test #'equal))
   "Alist equivalent to getf"
@@ -206,16 +206,17 @@
 (defun coerce-form-data-to-type (form-data-string type)
   (cond
     ((eq type 'date)
-     (let ((year (subseq form-data-string 0 4))
-            (month (subseq form-data-string 5 7))
-            (day (subseq form-data-string 8 10)))
-        (or (ignore-errors
-             (encode-universal-time
-              0 0 0
-              (parse-integer day)
-              (parse-integer month)
-              (parse-integer year)))
-            (get-universal-time))))
+     (or (ignore-errors
+          (let ((year (subseq form-data-string 0 4))
+                (month (subseq form-data-string 5 7))
+                (day (subseq form-data-string 8 10)))
+            (encode-universal-time
+             0 0 0
+             (parse-integer day)
+             (parse-integer month)
+             (parse-integer year))
+            (get-universal-time)))
+         (random (get-universal-time))))
     ((subtypep type 'integer)
      (parse-integer form-data-string :junk-allowed t))
     ((subtypep type 'boolean)

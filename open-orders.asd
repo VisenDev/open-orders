@@ -17,5 +17,6 @@
                   (:file "templates")
                   (:file "auth")
                   (:file "derive-page")
+                  (:file "random")
                   (:file "main")))))
 

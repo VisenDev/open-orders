@@ -37,3 +37,13 @@ button:hover {
 th {
     text-align: left;
 }
+
+/* td { */
+/*     margin-left: 5px; */
+/*     margin-right: 5px; */
+/* } */
+
+table {
+  border-collapse: separate;
+  border-spacing: 20px 0; /* 20px horizontal, 0px vertical */
+}   
