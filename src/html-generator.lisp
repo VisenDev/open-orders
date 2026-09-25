@@ -39,7 +39,8 @@
            #:underline #:var #:video #:wbr
            #:xmp
            #:doctype
-           #:br))
+           #:br
+           #:select))
 (in-package #:open-orders.html-generator)
 
 (eval-when (:compile-toplevel :load-toplevel)
@@ -174,8 +175,8 @@
   paragraph (param :self-closing-p t) em pre
   progress q rp rt
   ruby s samp script
-  section small (source :self-closing-p t) spacer
-  span strike strong style
+  section select small (source :self-closing-p t)
+  spacer span strike strong style
   sub sup summary svg
   (html-table :html-name "table") tbody td template
   tfoot th thead (html-time :html-name "time")

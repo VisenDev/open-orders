@@ -38,7 +38,7 @@
                                    :appending (list (string-downcase
                                                      (format nil "~a=~~a" key))
                                                     "&")
-                                   :into forms
+                                     :into forms
                                    :finally (return (butlast forms))))
                  ,@(loop :for (key value) :on parameter-plist :by #'cddr
                          :collect (if (stringp value)
@@ -152,18 +152,44 @@
                      reversed)
                  :collect
                  (tr ()
-                   ,@(loop :for field :in listed-fields
-                           :for i :from 0
-                           :collect
-                           `(unless ,(if (< i *max-columns-on-mobile*)
-                                         nil
-                                         'mobilep)
-                              (td ()
-                                (a (:href ,(generate-table-url
-                                            def
-                                            "edit"
-                                            :id `(,(table-id-accessor def) val)))
-                                  (,(field-accessor field) val))))))))))))))
+                   ,@(loop
+                       :for field :in listed-fields
+                       :for i :from 0
+                       :collect
+                       `(unless ,(if (< i *max-columns-on-mobile*)
+                                     nil
+                                     'mobilep)
+                          (td ()
+                            (a (:href ,(generate-table-url
+                                        def
+                                        "edit"
+                                        :id `(,(table-id-accessor def) val)))
+                              ,(let* ((display-as (getf (field-metadata field)
+                                                        :display-as))
+                                      (reference-def
+                                        (find-table
+                                         (field-references field))))
+
+                                 ;; DISPLAY AS AND REFERENCES
+                                 (cond
+                                   
+                                   ((and reference-def display-as)
+                                    `(ignore-errors
+                                      (,display-as
+                                       (,(table-get-function reference-def)
+                                        (,(field-accessor field) val)))))
+                                   
+                                   (reference-def
+                                    `(,(table-get-function reference-def)
+                                      (,(field-accessor field) val)))
+
+                                   (display-as
+                                    `(ignore-errors
+                                      (,display-as
+                                       (,(field-accessor field) val))))
+
+                                   (t
+                                    `(,(field-accessor field) val)))))))))))))))))
 
 (defmacro derive-new-page-from-table (table-name)
   (let ((def (find-table table-name)))
@@ -200,16 +226,19 @@
                          ;; TODO add a metadata option for the conversion
                          ,(let ((type (field-type field)))
                             (cond
-                              ((subtypep type 'integer)
+                              ((or (subtypep type 'integer)
+                                   (field-references field))
                                `(parse-integer ,(field-name field) :junk-allowed t))
                               ((subtypep type 'boolean)
                                `(string= "on" ,(field-name field)))
-                              ((subtypep type 'string) (field-name field))
-                              (t (error
-                                  "Don't know how to convert this type
-                                          from a string"))))))))
-                   (remove "id" (table-fields def) :key #'field-namestring
-                                                   :test #'string=))
+                              ((or (subtypep type 'string)
+                                   (eq type t))
+                               (field-name field))
+                              (t
+                               (error
+                                "Don't know how to convert the type '~a' from a string" type))))))))
+            (remove "id" (table-fields def) :key #'field-namestring
+                                            :test #'string=))
          (,(table-set-function def) val)
 
          (hunchentoot:redirect redirect-url :code 303)))))
@@ -250,22 +279,67 @@
                    "delete"))))
            (hr ())
            (html-table ()
+
+             ;; Create a edit row for table field
              ,@(mapcar
                 (lambda (field)
                   `(tr ()
                      (td () ,(field-namestring field))
                      (td ()
-                       (input (:name ,(field-namestring field)
-                               :value (,(field-accessor field) table-value)
-                               :type ,(let ((type (field-type field)))
-                                        (cond
-                                          ((subtypep type 'number) "number")
-                                          ((subtypep type 'boolean) "checkbox")
-                                          (t "text"))))))))
+                       ,(if (field-references field)
+
+                            ;; Dropdown for foreign tables
+                            `(select (:name ,(field-namestring field))
+                               ,(let ((foreign-def
+                                       (find-table
+                                        (field-references field))))
+                                  ;; Foreign table definition lookup
+                                  `(loop
+                                     :for foreign-table-value
+                                       :across (,(table-get-every-function foreign-def))
+                                     :for foreign-id
+                                       = (,(table-id-accessor foreign-def)
+                                                      foreign-table-value)
+
+                                     :for option-body =
+                                     ,(if (getf (field-metadata field) :display-as)
+                                          `(ignore-errors
+                                            (,(getf (field-metadata field) :display-as)
+                                             foreign-table-value))
+                                          'foreign-table-value)
+
+                                     ;; collect html options for each foreign value
+                                     :collect
+
+                                     ;; eql not '=', since foreign id may
+                                     ;; be nil
+                                     (if (eql foreign-id
+                                              (,(field-accessor field)
+                                               table-value))
+                                         (option (:selected "selected"
+                                                  :value foreign-id)
+                                           option-body)
+
+                                         ;; else the id is not the currently
+                                         ;; chosen id
+                                         (option (:value foreign-id)
+                                           option-body)))))
+                            
+                            ;; else if the field doesn't reference any table
+                            ;; Just make it an input not a dropdown
+                            `(input (:name ,(field-namestring field)
+                                     :value (,(field-accessor field) table-value)
+                                     :type ,(let ((type (field-type field)))
+                                              (cond
+                                                ((subtypep type 'number) "number")
+                                                ((subtypep type 'boolean) "checkbox")
+                                                (t "text")))))))))
+
+                ;; Don't let the id field be editable
                 (remove "id" (table-fields def) :key #'field-namestring
                                                 :test #'string=)))
 
-           ;; delete modal
+           ;; delete modal for deleting a record
            (dialog (:id "confirm-delete")
              (button ()
                "Yes, I want to delete this")

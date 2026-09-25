@@ -27,15 +27,6 @@
             :type string :initform ""
             :metadata (:show-in-list-view-p t))))
 
-(define-table order
-    ((field po-number :type string :initform "lorem ipsum"
-                      :metadata (:show-in-list-view-p t))
-     (field customer :type string :initform ""
-                     :metadata (:show-in-list-view-p t))
-     (field customer-id :type integer :initform -1)
-     (field part-number :type string :initform ""
-                        :metadata (:show-in-list-view-p t))))
-
 (define-table inventory
   ((field (part-number location note last-updated)
           :type string :initform ""
@@ -65,7 +56,44 @@
 (derive-all-pages inventory)
 (derive-all-pages employee)
 (derive-all-pages purchase-order)
-(derive-all-pages order)
+
+(define-table po-details
+    ((field customer-id :references customer
+                        :metadata (:display-as customer-name
+                                   :show-in-list-view-p t))
+     (field purchase-order :type string :initform ""
+                           :metadata (:show-in-list-view-p t))
+     (field line-item :type integer :initform 1
+                      :metadata (:show-in-list-view-p t))
+     (field part-number :type string :initform ""
+                        :metadata (:show-in-list-view-p t))
+     (field revision :type string :initform "")
+     (field price-each :type string :initform "")
+     (field ship-terms :type string :initform "Freight Collect")
+     (field billing-terms :type string :initform "Net30")
+     (field material-type :type string :initform "")
+     (field job-status :type string :initform "Waiting")
+     (field notes :type string :initform ""
+                  :metadata (:show-in-list-view-p t))))
+
+(derive-all-pages po-details)
+
+;; (define-table shipping-schedule
+;;     ((po-details :references po-details :display-as po-details-purchase-order)))
+
+;; (define-table order
+;;     ((field po-number :type string :initform "lorem ipsum"
+;;                       :metadata (:show-in-list-view-p t))
+;;      (field customer :type string :initform ""
+;;                      :metadata (:show-in-list-view-p t))
+;;      (field customer-id :type integer :initform -1)
+;;      (field part-number :type string :initform ""
+;;                         :metadata (:show-in-list-view-p t))))
+
+
+;; (derive-list-page-from-table order)
+;; (derive-new-page-from-table order)
+;; (derive-save-page-from-table order)
 
 
 ;; Derivations
