@@ -64,10 +64,21 @@
             :metadata (:page-config (page-config :show-in-list-view-p t)))))
 
 (define-table inventory
-  ((field (part-number location note last-updated)
+  ((field part-number
+          :type string :initform (format nil "~a"
+                                         (open-orders.random:n-digit-number 8))
+          :metadata (:page-config
+                     (page-config :show-in-list-view-p t)))
+   (field (location note)
           :type string :initform ""
           :metadata (:page-config
-                     (page-config :show-in-list-view-p t)))))
+                     (page-config :show-in-list-view-p t)))
+   (field last-updated
+          :type date :initform (get-universal-time)
+          :metadata (:page-config
+                     (page-config :show-in-list-view-p t
+                                  :display-as universal-time->date-string
+                                  :compare-function <)))))
 
 (define-table employee
   ((field name
@@ -137,6 +148,7 @@
   `(progn
      (derive-list-page-from-table ,table-name)
      (derive-new-page-from-table ,table-name)
+     (derive-delete-page-from-table ,table-name)
      (derive-save-page-from-table ,table-name)
      (derive-edit-page-from-table ,table-name)))
 
@@ -148,9 +160,6 @@
 (derive-all-pages employee)
 (derive-all-pages purchase-order)
 (derive-all-pages po-details)
-
-
-
 
 
 (hunchentoot:define-easy-handler (home :uri "/") ()

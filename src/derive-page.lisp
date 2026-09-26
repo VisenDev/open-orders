@@ -18,7 +18,8 @@
    #:derive-new-page-from-table
    #:derive-save-page-from-table
    #:define-edit-page-for-table
-   #:derive-edit-page-from-table))
+   #:derive-edit-page-from-table
+   #:derive-delete-page-from-table))
 (in-package #:open-orders.derive-page)
 
 (defparameter *max-columns-on-mobile* 2)
@@ -342,45 +343,60 @@
           (if references
 
               ;; Dropdown for foreign tables
-              (select (:name namestring)
-                ;; Foreign table definition lookup
-                (loop
-                  :with foreign-def = (find-table references)
-                  :with get-every = (table-get-every-function foreign-def)
-                  :for foreign-table-value :across (funcall get-every)
-                  :for foreign-id
-                    = (funcall (table-id-accessor foreign-def)
-                               foreign-table-value)
+              (list
+               
+               (select (:name namestring)
+                 ;; Foreign table definition lookup
+                 (loop
+                   :with foreign-def = (find-table references)
+                   :with get-every = (table-get-every-function foreign-def)
+                   :for foreign-table-value :across (funcall get-every)
+                   :for foreign-id
+                     = (funcall (table-id-accessor foreign-def)
+                                foreign-table-value)
 
-                  :for option-body =
-                                   (if (config-display-as page-config)
-                                       (ignore-errors
-                                        (funcall (config-display-as page-config)
-                                                 foreign-table-value))
-                                       foreign-table-value)
-                                   
-                                   ;; collect html options for each foreign value
-                  :collect
+                   :for option-body =
+                                    (if (config-display-as page-config)
+                                        (ignore-errors
+                                         (funcall (config-display-as page-config)
+                                                  foreign-table-value))
+                                        foreign-table-value)
+                                    
+                                    ;; collect html options for each foreign value
+                   :collect
 
-                  ;; eql not '=', since foreign id may
-                  ;; be nil
-                  (if (eql foreign-id value
-                           ;; (,(field-accessor field)
-                           ;;  table-value)
-                           )
-                      (option (:selected "selected"
-                               :value foreign-id)
-                        option-body)
+                   ;; eql not '=', since foreign id may
+                   ;; be nil
+                   (if (eql foreign-id value)
+                       (option (:selected "selected"
+                                :value foreign-id)
+                         option-body)
 
-                      ;; else the id is not the currently
-                      ;; chosen id
-                      (option (:value foreign-id)
-                        option-body))))
+                       ;; else the id is not the currently
+                       ;; chosen id
+                       (option (:value foreign-id)
+                         option-body))))
+
+               ;; View button
+               (button (:type "submit"
+                        :name "redirect-url"
+                        :value (format nil "~a?id=~a"
+                                       (table-url
+                                        (find-table references) "edit" )
+                                       value))
+                 "View"))
               
               ;; else if the field doesn't reference any table
               ;; Just make it an input not a dropdown
               (input (:name namestring
-                      :value value
+                      :value (cond
+                              ((eq type 'date)
+                               (multiple-value-bind
+                                     (second minute hour date year month)
+                                   (decode-universal-time value)
+                                 (declare (ignore second minute hour))
+                                 (format nil "~a-~2,'0d-~2,'0d" year month date)))
+                              (t value))
                       :type (cond
                               ((eq type 'date) "date")
                               ((subtypep type 'number) "number")
@@ -426,14 +442,36 @@
                                                (get-page-config field))
                        :references ',(field-references field)
                        :type ',(field-type field)
-                       :value (,(field-accessor field) table-value))))
+                       :value (,(field-accessor field) table-value)))))
+         
+         ;; delete modal for deleting a record
+         (dialog (:id "confirm-delete")
+           (html-table ()
+             (tr ()
+               (td ()
+                 (a (:href ,(generate-table-url
+                                    def "delete"
+                                    :id `(,(table-id-accessor def)
+                                          table-value)))
+                   (button () "Permanently Delete?"))))
+             (tr ()
+               (td ()
+                 (hr ())))
+             (tr ()
+               (td ()
+                 (button (:command "close"
+                          :commandfor "confirm-delete"
+                          :type "button")
+                   "Cancel")))))))))
 
-           ;; delete modal for deleting a record
-           (dialog (:id "confirm-delete")
-             (button ()
-               "Yes, I want to delete this")
-             (button (:command "close"
-                      :commandfor "confirm-delete"
-                      :type "button")
-               "Cancel")))))))
-
+(defmacro derive-delete-page-from-table (table-name)
+  (let ((def (find-table table-name)))
+    `(hunchentoot:define-easy-handler
+         (,(open-orders.fn:symbolicate table-name '-delete)
+          :uri ,(table-url def "delete"))
+         (id)
+       (perform-auth-check)
+       (let* ((val (,(table-get-function def) (parse-integer id))))
+         (,(table-delete-function def) val)
+         (hunchentoot:redirect ,(generate-table-url def "list")
+                               :code 303)))))

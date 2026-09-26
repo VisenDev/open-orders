@@ -42,6 +42,7 @@
    #:table-namestring
    #:table-get-every-function
    #:table-get-function
+   #:table-delete-function
    #:table-set-function
    #:table-constructor
    #:table-metadata
@@ -142,6 +143,14 @@
         (let ((cl:*read-eval* nil))
           (unless (zerop (file-length fp))
             (read fp)))))))
+
+(fn (table-delete t) ((database-path (or string pathname))
+                      (table-name table-designator)
+                      (id integer))
+  (let ((filename (table-filename-get database-path table-name id)))
+    (declare (dynamic-extent filename))
+    (when (probe-file filename)
+      (ignore-errors (delete-file filename)))))
 
 ;; Lock file creation for syncronizing threads
 (fn (try-acquire-lock (or null stream)) ((pathname pathname))
@@ -293,6 +302,7 @@
     id-accessor
     get-every-function
     get-function
+    delete-function
     set-function
     (fields nil :type list)
     (conc-name nil :type symbol)
@@ -312,6 +322,7 @@
                   :id-accessor (symbolicate conc-name 'id)
                   :get-every-function (symbolicate 'get-every- name)
                   :get-function (symbolicate 'get- name)
+                  :delete-function (symbolicate 'delete- name)
                   :set-function (symbolicate 'set- name)
                   :namestring (string-downcase (symbol-name name))
                   :constructor (symbolicate 'make- name)
@@ -412,6 +423,16 @@
                 (setf id (table-find-free-id database-path ',(table-name def)))
                 (setf (,(table-id-accessor def) ,(table-name def)) id))
               (table-set database-path ,(table-name def) id))))
+
+       ,(macroexpand
+         `(fn (,(table-delete-function def) t)
+              ((,(table-name def) ,(table-name def))
+               &optional ((database-path (or string pathname)) *database-path*))
+            (let ((id (,(table-id-accessor def) ,(table-name def))))
+              (declare (type (or integer null) id))
+              (when id
+                (table-delete database-path ',(table-name def) id)
+                (setf (,(table-id-accessor def) ,(table-name def)) nil)))))
 
        ,(macroexpand
          `(fn (,(table-get-every-function def)
