@@ -24,7 +24,6 @@
    #:field-name
    #:field-accessor
    #:field-type
-   #:field-compare-function
    #:field-initform
    #:field-references
    #:field-metadata
@@ -45,6 +44,7 @@
    #:table-get-function
    #:table-set-function
    #:table-constructor
+   #:table-metadata
 
    ;; Table lookup
    #:find-table
@@ -277,13 +277,11 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defstruct (field
               (:constructor field
-                  (name &key type compare-function initform
-                          references metadata docs)))
+                  (name &key type initform references metadata docs)))
     (name nil :type symbol)
     (namestring "" :type string)
     accessor
     (type t)
-    compare-function
     initform
     references
     metadata
@@ -297,7 +295,8 @@
     get-function
     set-function
     (fields nil :type list)
-    (conc-name nil :type symbol)))
+    (conc-name nil :type symbol)
+    (metadata nil :type list)))
 
 ;;; For slime completion of arguments
 ;;; Not actually used for anything
@@ -305,7 +304,8 @@
 ;;   (declare (ignore name type compare-function initform references)))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-    (defun parse-table-definition (name field-forms conc-name id-field-metadata)
+    (defun parse-table-definition (name field-forms conc-name
+                                   id-field-metadata metadata)
     (let ((conc-name (or conc-name (symbolicate name '-))))
       (make-table :name name
                   :conc-name conc-name
@@ -315,6 +315,7 @@
                   :set-function (symbolicate 'set- name)
                   :namestring (string-downcase (symbol-name name))
                   :constructor (symbolicate 'make- name)
+                  :metadata metadata
                   :fields (cons
                            (let ((id (field 'id :type '(or null integer)
                                                 :metadata id-field-metadata)))
@@ -356,7 +357,7 @@
                             field-forms))))))
 
 
-(defmacro define-table (name fields &key conc-name id-field-metadata)
+(defmacro define-table (name fields &key conc-name metadata id-field-metadata)
   "'fields' should be a list of s-expressions of the form
    (field <name> :type <type> ...etc...)
 
@@ -378,7 +379,8 @@
 
    For a complete list of field options, look at the definition of the 'field'
    struct. "
-  (let ((def (parse-table-definition name fields conc-name id-field-metadata)))
+  (let ((def (parse-table-definition name fields conc-name id-field-metadata
+                                     metadata)))
     `(progn
        (eval-when (:compile-toplevel :load-toplevel :execute)
          (setf (find-table ',name)
@@ -386,7 +388,8 @@
                 ',name
                 ',fields
                 ',conc-name
-                ',id-field-metadata)))
+                ',id-field-metadata
+                ',metadata)))
        (defstruct (,(table-name def) (:conc-name ,(table-conc-name def)))
          ,@(mapcar (lambda (f)
                      (list (field-name f) (field-initform f)

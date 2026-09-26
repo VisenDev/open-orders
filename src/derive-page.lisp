@@ -9,6 +9,9 @@
   (:import-from #:url-rewrite
                 #:url-encode)
   (:export
+   #:make-derive-page-config
+   #:derive-page-config
+   #:page-config
    #:geta
    #:derive-list-page-from-table
    #:table-url
@@ -20,9 +23,32 @@
 
 (defparameter *max-columns-on-mobile* 2)
 
+(defstruct (page-config (:conc-name config-)
+                        (:constructor page-config))
+  (show-in-list-view-p nil :type boolean)
+  (display-as nil #|:type (function (t) string)|#)
+  (display-name nil :type (or string null))
+  (compare-function nil #|:type (function (t t) boolean)|#))
+
+(fn (generate-page-config-literal list) ((config page-config))
+  "A struct literal can't be dumped to a fasl, so when I 
+   need to save a page config to the fasl, this function
+   can be used to create a declarative page config constructor"
+  `(page-config
+    :show-in-list-view-p ,(config-show-in-list-view-p config)
+    :display-as ,(config-display-as config)
+    :display-name ,(config-display-name config)
+    :compare-function ',(config-compare-function config)))
+
 (fn (geta t) (item (alist list) &key (test #'equal))
   "Alist equivalent to getf"
   (cdr (assoc item alist :test test)))
+
+(fn (default-compare-function boolean) ((a t) (b t))
+  (not
+   (not
+    (string< (format nil "~a" a)
+             (format nil "~a" b)))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (fn (table-url string) ((def table) (page (or string symbol)))
@@ -45,13 +71,58 @@
                                       (url-encode value)
                                       `(url-encode
                                         (format nil "~a" ,value)))))
-        (table-url def page))))
+        (table-url def page)))
+  
+
+  (fn (get-page-config (or page-config null)) ((field field))
+    (let ((config (getf (field-metadata field) :page-config)))
+
+      ;; Construct config declaratively 
+      (cond (config
+             (assert (eq (first config) 'page-config))
+             (apply #'page-config (rest config)))
+            (t
+             (page-config))))))
+
+(fn (get-every-table-value-filtered (or vector null))
+      ((table-name symbol)
+       (sort-by (or string null))
+       (search (or string null))
+       (reverse (or string null)))
+    (let* ((def (find-table table-name))
+           (raw (funcall (table-get-every-function def)))
+           (filtered
+             (if search
+                 (remove-if-not
+                  (lambda (value)
+                    (search search (format nil "~a" value)))
+                  raw)
+                 raw))
+           (field
+             (and sort-by
+                  (find sort-by
+                        (table-fields def)
+                        :key #'field-namestring
+                        :test #'string=)))
+           (sorted
+             (if field
+                 (sort filtered
+                       (or (config-compare-function
+                            (get-page-config field))
+                           #'default-compare-function)
+                       :key (field-accessor field))
+                 filtered)))
+      (if (string= reverse "true")
+          (nreverse sorted)
+          sorted)))
+
+
 
 (defmacro derive-list-page-from-table (table-name &key (create-toplevel-link t))
   (let* ((def (find-table table-name))
          (listed-fields (remove-if-not
                          (lambda (field)
-                           (getf (field-metadata field) :show-in-list-view-p))
+                           (config-show-in-list-view-p (get-page-config field)))
                          (table-fields def))))
     `(progn
 
@@ -99,6 +170,7 @@
                ;; table header
                (tr ()
                  ,@(loop :for field :in listed-fields
+                         :for config = (get-page-config field)
                          :for i :from 0
                          :collect
                          `(unless ,(if (< i *max-columns-on-mobile*)
@@ -119,37 +191,14 @@
                                      :sort-by (field-namestring field)
                                      :reverse '(if (string= reverse "true")
                                                 "false" "true"))))
-                                ,(format nil "[~a]" (field-namestring field)))))))
+                                ,(format nil "[~a]"
+                                         (or (config-display-name config)
+                                             (field-namestring field))))))))
 
                ;; table body
                (loop
-                 :for val
-                   :across
-                   (let* ((sorted (sort (if search
-                                            (remove-if-not
-                                             (lambda (value)
-                                               (search
-                                                search
-                                                (format nil "~a" value)))
-                                             (,(table-get-every-function def)))
-                                            (,(table-get-every-function def)))
-                                        (lambda (a b)
-                                          ;; todo, use the fields handler
-                                          (string< (format nil "~a" a)
-                                                   (format nil "~a" b)))
-                                        :key
-                                        (cond 
-                                          ,@(mapcar
-                                             (lambda (f)
-                                               `((string= sort-by
-                                                          ,(field-namestring f))
-                                                 (function ,(field-accessor f)))
-                                               )
-                                             (table-fields def)))))
-                          (reversed (if (string= reverse "true")
-                                        (nreverse sorted)
-                                        sorted)))
-                     reversed)
+                 :for val :across (get-every-table-value-filtered
+                                   ',table-name sort-by search reverse )
                  :collect
                  (tr ()
                    ,@(loop
@@ -164,8 +213,8 @@
                                         def
                                         "edit"
                                         :id `(,(table-id-accessor def) val)))
-                              ,(let* ((display-as (getf (field-metadata field)
-                                                        :display-as))
+                              ,(let* ((display-as (config-display-as
+                                                   (get-page-config field)))
                                       (reference-def
                                         (find-table
                                          (field-references field))))
@@ -214,8 +263,7 @@
              0 0 0
              (parse-integer day)
              (parse-integer month)
-             (parse-integer year))
-            (get-universal-time)))
+             (parse-integer year))))
          (random (get-universal-time))))
     ((subtypep type 'integer)
      (parse-integer form-data-string :junk-allowed t))
@@ -280,57 +328,64 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun generate-form-input-from-field (&key namestring references
-                                           metadata type value)
-    (tr ()
-       (td () namestring)
-       (td ()
-         (if references
+                                           page-config-literal type value)
+    
+    (let* ((page-config (or (when page-config-literal
+                             (assert (eq 'page-config (first page-config-literal)))
+                             (apply #'page-config (rest page-config-literal)))
+                           (page-config)))
+           (display-name (or (config-display-name page-config)
+                             namestring)))
+      (tr ()
+        (td () display-name)
+        (td ()
+          (if references
 
-             ;; Dropdown for foreign tables
-             (select (:name namestring)
-               ;; Foreign table definition lookup
-               (loop
-                 :with foreign-def = (find-table references)
-                 :with get-every = (table-get-every-function foreign-def)
-                 :for foreign-table-value :across (funcall get-every)
-                 :for foreign-id
-                   = (funcall (table-id-accessor foreign-def)
-                              foreign-table-value)
+              ;; Dropdown for foreign tables
+              (select (:name namestring)
+                ;; Foreign table definition lookup
+                (loop
+                  :with foreign-def = (find-table references)
+                  :with get-every = (table-get-every-function foreign-def)
+                  :for foreign-table-value :across (funcall get-every)
+                  :for foreign-id
+                    = (funcall (table-id-accessor foreign-def)
+                               foreign-table-value)
 
-                 :for option-body =
-                                  (if (getf metadata :display-as)
-                                      (ignore-errors
-                                       (funcall (getf metadata :display-as)
-                                                foreign-table-value))
-                                      foreign-table-value)
-                                  
-                                  ;; collect html options for each foreign value
-                 :collect
+                  :for option-body =
+                                   (if (config-display-as page-config)
+                                       (ignore-errors
+                                        (funcall (config-display-as page-config)
+                                                 foreign-table-value))
+                                       foreign-table-value)
+                                   
+                                   ;; collect html options for each foreign value
+                  :collect
 
-                 ;; eql not '=', since foreign id may
-                 ;; be nil
-                 (if (eql foreign-id value
-                          ;; (,(field-accessor field)
-                          ;;  table-value)
-                          )
-                     (option (:selected "selected"
-                              :value foreign-id)
-                       option-body)
+                  ;; eql not '=', since foreign id may
+                  ;; be nil
+                  (if (eql foreign-id value
+                           ;; (,(field-accessor field)
+                           ;;  table-value)
+                           )
+                      (option (:selected "selected"
+                               :value foreign-id)
+                        option-body)
 
-                     ;; else the id is not the currently
-                     ;; chosen id
-                     (option (:value foreign-id)
-                       option-body))))
-             
-             ;; else if the field doesn't reference any table
-             ;; Just make it an input not a dropdown
-             (input (:name namestring
+                      ;; else the id is not the currently
+                      ;; chosen id
+                      (option (:value foreign-id)
+                        option-body))))
+              
+              ;; else if the field doesn't reference any table
+              ;; Just make it an input not a dropdown
+              (input (:name namestring
                       :value value
                       :type (cond
                               ((eq type 'date) "date")
                               ((subtypep type 'number) "number")
                               ((subtypep type 'boolean) "checkbox")
-                              (t "text")))))))))
+                              (t "text"))))))))))
 
 (defmacro derive-edit-page-from-table (table-name)
   (let ((def (find-table table-name))) 
@@ -363,7 +418,12 @@
                      :collect
                      `(generate-form-input-from-field
                        :namestring ,(field-namestring field)
-                       :metadata ',(field-metadata field)
+
+                       ;; a page config struct instance can't be
+                       ;; dumped to a fasl, so dump a serialized
+                       ;; version instead
+                       :page-config-literal ',(generate-page-config-literal
+                                               (get-page-config field))
                        :references ',(field-references field)
                        :type ',(field-type field)
                        :value (,(field-accessor field) table-value))))
