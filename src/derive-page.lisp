@@ -19,7 +19,8 @@
    #:derive-save-page-from-table
    #:define-edit-page-for-table
    #:derive-edit-page-from-table
-   #:derive-delete-page-from-table))
+   #:derive-delete-page-from-table
+   #:derive-view-reference-page-from-table))
 (in-package #:open-orders.derive-page)
 
 (defparameter *max-columns-on-mobile* 2)
@@ -317,7 +318,9 @@
          ;; Redirect (get, post, redirect pattern)
          (hunchentoot:redirect redirect-url :code 303))))))
 
-(fn (generate-form-input-from-field t) (&key ((namestring string))
+(fn (generate-form-input-from-field t) (&key ((id integer))
+                                             ((def table))
+                                             ((namestring string))
                                              ((references (or symbol null)))
                                              ((page-config page-config))
                                              type value
@@ -363,10 +366,9 @@
         ;; View button
         (button (:type "submit"
                  :name "redirect-url"
-                 :value (format nil "~a?id=~a"
-                                (table-url
-                                 (find-table references) "edit" )
-                                value))
+                 :value (table-url def "view-reference"
+                                   (cons :id id)
+                                   (cons :field-name namestring)))
           "View"))
        
        ;; else if the field doesn't reference any table
@@ -375,7 +377,7 @@
                :value (cond
                         ((eq type 'date)
                          (multiple-value-bind
-                               (second minute hour date year month)
+                               (second minute hour date month year)
                              (decode-universal-time value)
                            (declare (ignore second minute hour))
                            (format nil "~a-~2,'0d-~2,'0d" year month date)))
@@ -438,7 +440,9 @@
                                               :test #'string=)
                        :collect
                        (generate-form-input-from-field
-                         :namestring (field-namestring field)
+                        :id (or (parse-integer id :junk-allowed t) 0)
+                        :def def
+                        :namestring (field-namestring field)
 
                          ;; a page config struct instance can't be
                          ;; dumped to a fasl, so dump a serialized
@@ -479,3 +483,22 @@
          (funcall (table-delete-function def) val)
          (hunchentoot:redirect (table-url def "list")
                                :code 303))))))
+
+(defun derive-view-reference-page-from-table (table-name)
+  (let ((def (find-table table-name)))
+    (register-page
+     (table-url def "view-reference")
+     (lambda-with-parameters (id field-name)
+       (perform-auth-check)
+       (let* ((field (find field-name (table-fields def)
+                           :key #'field-namestring :test #'string=))
+              (foreign-def (ignore-errors
+                            (find-table (field-references field)))))
+         (if (null foreign-def)
+             (h1 () "Error, could not find field " field-name)
+             (let* ((table-value (funcall (table-get-function def)
+                                          (parse-integer id :junk-allowed t)))
+                    (foreign-id (funcall (field-accessor field) table-value)))
+               (hunchentoot:redirect
+                (table-url foreign-def "edit" (cons :id foreign-id))
+                :code 303))))))))

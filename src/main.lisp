@@ -1,4 +1,4 @@
-(cl:defpackage #:open-orders.main
+(defpackage #:open-orders.main
   (:use #:cl
         #:open-orders.fn
         #:open-orders.html-generator
@@ -98,6 +98,7 @@
           :type date :initform (get-universal-time)
           :metadata (:page-config (page-config
                                    :show-in-list-view-p t
+                                   :compare-function <
                                    :display-as universal-time->date-string)))))
 
 (define-table purchase-order
@@ -157,7 +158,8 @@
   (derive-new-page-from-table table-name)
   (derive-delete-page-from-table table-name)
   (derive-save-page-from-table table-name)
-  (derive-edit-page-from-table table-name))
+  (derive-edit-page-from-table table-name)
+  (derive-view-reference-page-from-table table-name))
 
 (pushnew (make-tab :name "<i>[logout]</i>" :url "/logout")
          *toplevel-tabs*
@@ -167,7 +169,6 @@
 (derive-all-pages 'employee)
 (derive-all-pages 'purchase-order)
 (derive-all-pages 'po-details)
-
 
 (hunchentoot:define-easy-handler (home :uri "/") ()
   (hunchentoot:redirect (table-url (find-table 'po-details) "list")))
