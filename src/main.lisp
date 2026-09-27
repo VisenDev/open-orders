@@ -99,7 +99,8 @@
                                   (random 100000))
           :metadata (:page-config (page-config
                                    :show-in-list-view-p t
-                                   :display-as universal-time->date-string)))
+                                   :display-as universal-time->date-string
+                                   :compare-function <)))
    (field supplier
           :type string :initform (open-orders.random:full-name)
           :metadata (:page-config (page-config :show-in-list-view-p t)))
