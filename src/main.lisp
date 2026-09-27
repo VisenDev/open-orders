@@ -13,6 +13,13 @@
    #:main))
 (in-package #:open-orders.main)
 
+
+;;;; IMPORTANT
+;;;; This enables the lisp debugger
+;;;; This should be DISABLED when running in production
+(setf hunchentoot:*catch-errors-p* nil)
+
+
 (defvar *acceptor* nil)
 
 (fn (universal-time->date-string string) ((timestamp date))
@@ -145,22 +152,21 @@
                   :metadata (:page-config (page-config
                                            :show-in-list-view-p t)))))
 
-(defmacro derive-all-pages (table-name)
-  `(progn
-     (derive-list-page-from-table ',table-name)
-     (derive-new-page-from-table ,table-name)
-     (derive-delete-page-from-table ,table-name)
-     (derive-save-page-from-table ,table-name)
-     (derive-edit-page-from-table ,table-name)))
+(defun derive-all-pages (table-name)
+  (derive-list-page-from-table table-name)
+  (derive-new-page-from-table table-name)
+  (derive-delete-page-from-table table-name)
+  (derive-save-page-from-table table-name)
+  (derive-edit-page-from-table table-name))
 
 (pushnew (make-tab :name "<i>[logout]</i>" :url "/logout")
          *toplevel-tabs*
          :test #'equalp)
-(derive-all-pages customer)
-(derive-all-pages inventory)
-(derive-all-pages employee)
-(derive-all-pages purchase-order)
-(derive-all-pages po-details)
+(derive-all-pages 'customer)
+(derive-all-pages 'inventory)
+(derive-all-pages 'employee)
+(derive-all-pages 'purchase-order)
+(derive-all-pages 'po-details)
 
 
 (hunchentoot:define-easy-handler (home :uri "/") ()

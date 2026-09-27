@@ -246,17 +246,16 @@
                                (funcall (field-accessor field)
                                         val))))))))))))))))))
 
-(defmacro derive-new-page-from-table (table-name)
+(defun derive-new-page-from-table (table-name)
   (let ((def (find-table table-name)))
-    `(hunchentoot:define-easy-handler
-         (,(open-orders.fn:symbolicate table-name '-new)
-          :uri ,(table-url def "new"))
-         ()
+    (register-page
+     (table-url def "new")
+     (lambda-with-parameters ()
        (perform-auth-check)
-       (let* ((new (,(table-constructor def)))
-              (id (,(table-set-function def) new)))
-         (hunchentoot:redirect ,(generate-table-url def "edit" :id 'id)
-                               :code 303)))))
+       (let* ((new (funcall (table-constructor def)))
+              (id (funcall (table-set-function def) new)))
+         (hunchentoot:redirect (table-url def "edit" (cons :id id))
+                               :code 303))))))
 
 (defun coerce-form-data-to-type (form-data-string type)
   (cond
@@ -281,212 +280,202 @@
     (t
      (error "Don't know how to convert the type '~a' from a string" type))))
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defun generate-form-deserializer-for-field (post-parameters-varname
-                                               table-value-varname field)
-    `(let ((field-form-value (geta ,(field-namestring field)
-                                   ,post-parameters-varname)))
-       (when field-form-value
-         (setf (,(field-accessor field) ,table-value-varname)
-               (coerce-form-data-to-type field-form-value
-                                         ',(if (field-references field)
-                                               'integer
-                                               (field-type field))))))))
+(fn (deserialize-field-from-http-parameters t) ((post-parameters list)
+                                                (table-value t)
+                                                (field field))
+  (let ((field-form-value (geta (field-namestring field) post-parameters)))
+    (when field-form-value
+      (funcall
+       (fdefinition `(setf ,(field-accessor field)))
+       (coerce-form-data-to-type field-form-value
+                                 (if (field-references field)
+                                     'integer
+                                     (field-type field)))
+       table-value))))
 
-(defmacro derive-save-page-from-table (table-name)
-  (let ((def (find-table table-name)))
-    `(hunchentoot:define-easy-handler
-         (,(open-orders.fn:symbolicate table-name '-save)
-          :uri ,(table-url def "save"))
-         (id)
-       
+(defun derive-save-page-from-table (table-name)
+  (let* ((def (find-table table-name)))
+    (register-page
+     (table-url def "save")
+     (lambda-with-parameters (id)
        (let* ((params (hunchentoot:post-parameters*))
               (id (parse-integer id :junk-allowed t))
               (redirect-url (geta "redirect-url" params))
-              (val (,(table-get-function def) id)))
+              (val (funcall (table-get-function def) id)))
 
          ;; iterate over all fields, getting their values from
          ;; parameters and setting them when non-null
-         ,@(mapcar (lambda (field) (generate-form-deserializer-for-field
-                                    'params 'val field))
-                   
-                   (remove "id" (table-fields def) :key #'field-namestring
-                                                   :test #'string=))
+         (mapcar (lambda (field) (deserialize-field-from-http-parameters
+                                  params val field))
+                 
+                 (remove "id" (table-fields def) :key #'field-namestring
+                                                 :test #'string=))
 
          ;; Save Value
-         (,(table-set-function def) val)
+         (funcall (table-set-function def) val)
 
          ;; Redirect (get, post, redirect pattern)
-         (hunchentoot:redirect redirect-url :code 303)))))
+         (hunchentoot:redirect redirect-url :code 303))))))
 
-(defmacro define-edit-page-for-table (table-name get-parameters
-                                      (save-endpoint-variable edit-value-variable)
-                                      &body body)
-  (let ((def (find-table table-name)))
-    `(hunchentoot:define-easy-handler
-         (,(open-orders.fn:symbolicate table-name '-edit)
-          :uri ,(table-url def "edit"))
-         (id ,@get-parameters)
-       (let ((,save-endpoint-variable ,(generate-table-url def "save" :id 'id))
-             (,edit-value-variable (,(table-get-function def)
-                                    (parse-integer id :junk-allowed t))))
-         (declare (ignorable ,save-endpoint-variable ,edit-value-variable))
-         ,@body))))
+(fn (generate-form-input-from-field t) (&key ((namestring string))
+                                             ((references (or symbol null)))
+                                             ((page-config page-config))
+                                             type value
+                                             &aux input-form)
+  (setf
+   input-form
+   (if references
+       ;; Dropdown for foreign tables
+       (list
+        
+        (select (:name namestring)
+          ;; Foreign table definition lookup
+          (loop
+            :with foreign-def = (find-table references)
+            :with get-every = (table-get-every-function foreign-def)
+            :for foreign-table-value :across (funcall get-every)
+            :for foreign-id
+              = (funcall (table-id-accessor foreign-def)
+                         foreign-table-value)
 
-(defun generate-form-input-from-field (&key namestring references
-                                         page-config-literal type value)
-  
-  (let* ((page-config (or (when page-config-literal
-                            (assert (eq 'page-config (first page-config-literal)))
-                            (apply #'page-config (rest page-config-literal)))
-                          (page-config)))
-         (display-name (or (config-display-name page-config)
-                           namestring))
-         (input
-           (if references
-               ;; Dropdown for foreign tables
-               (list
-                
-                (select (:name namestring)
-                  ;; Foreign table definition lookup
-                  (loop
-                    :with foreign-def = (find-table references)
-                    :with get-every = (table-get-every-function foreign-def)
-                    :for foreign-table-value :across (funcall get-every)
-                    :for foreign-id
-                      = (funcall (table-id-accessor foreign-def)
+            :for option-body =
+                             (if (config-display-as page-config)
+                                 (ignore-errors
+                                  (funcall (config-display-as page-config)
+                                           foreign-table-value))
                                  foreign-table-value)
+                             
+                             ;; collect html options for each foreign value
+            :collect
 
-                    :for option-body =
-                                     (if (config-display-as page-config)
-                                         (ignore-errors
-                                          (funcall (config-display-as page-config)
-                                                   foreign-table-value))
-                                         foreign-table-value)
-                                     
-                                     ;; collect html options for each foreign value
-                    :collect
+            ;; eql not '=', since foreign id may
+            ;; be nil
+            (if (eql foreign-id value)
+                (option (:selected "selected"
+                         :value foreign-id)
+                  option-body)
 
-                    ;; eql not '=', since foreign id may
-                    ;; be nil
-                    (if (eql foreign-id value)
-                        (option (:selected "selected"
-                                 :value foreign-id)
-                          option-body)
+                ;; else the id is not the currently
+                ;; chosen id
+                (option (:value foreign-id)
+                  option-body))))
 
-                        ;; else the id is not the currently
-                        ;; chosen id
-                        (option (:value foreign-id)
-                          option-body))))
+        ;; View button
+        (button (:type "submit"
+                 :name "redirect-url"
+                 :value (format nil "~a?id=~a"
+                                (table-url
+                                 (find-table references) "edit" )
+                                value))
+          "View"))
+       
+       ;; else if the field doesn't reference any table
+       ;; Just make it an input not a dropdown
+       (input (:name namestring
+               :value (cond
+                        ((eq type 'date)
+                         (multiple-value-bind
+                               (second minute hour date year month)
+                             (decode-universal-time value)
+                           (declare (ignore second minute hour))
+                           (format nil "~a-~2,'0d-~2,'0d" year month date)))
+                        (t value))
+               :type (cond
+                       ((eq type 'date) "date")
+                       ((subtypep type 'number) "number")
+                       ((subtypep type 'boolean) "checkbox")
+                       (t "text"))))))
 
-                ;; View button
-                (button (:type "submit"
-                         :name "redirect-url"
-                         :value (format nil "~a?id=~a"
-                                        (table-url
-                                         (find-table references) "edit" )
-                                        value))
-                  "View"))
-               
-               ;; else if the field doesn't reference any table
-               ;; Just make it an input not a dropdown
-               (input (:name namestring
-                       :value (cond
-                                ((eq type 'date)
-                                 (multiple-value-bind
-                                       (second minute hour date year month)
-                                     (decode-universal-time value)
-                                   (declare (ignore second minute hour))
-                                   (format nil "~a-~2,'0d-~2,'0d" year month date)))
-                                (t value))
-                       :type (cond
-                               ((eq type 'date) "date")
-                               ((subtypep type 'number) "number")
-                               ((subtypep type 'boolean) "checkbox")
-                               (t "text")))))))
-    (if (mobile-browser-p)
-        (list
-         (tr ()
-           (td () display-name))
-         (tr ()
-           (td () input))
-         (tr ()
-           (td () (hr ()))))
+  
+  (if (mobile-browser-p)
+      (list
+       (tr ()
+         (td () (or (config-display-name page-config)
+                    namestring)))
+       (tr ()
+         (td () input-form))
+       (tr ()
+         (td () (hr ()))))
 
-        ;; else
-        (tr ()
-          (td () display-name)
-          (td () input)))))
+      ;; else
+      (tr ()
+        (td () (or (config-display-name page-config)
+                   namestring))
+        (td () input-form))))
 
-(defmacro derive-edit-page-from-table (table-name)
-  (let ((def (find-table table-name))) 
-    `(define-edit-page-for-table ,table-name () (save-url table-value)
-       (with-internal-page
-         (hr ())
-         (form (:method "post" :action save-url)
-           (html-table ()
-             (tr ()
-               (td ()
-                 (Button (:type "submit" :name "redirect-url"
-                          :value ,(table-url def "list"))
-                   "back"))
-               (td ()
-                 (button (:type "submit" :name "redirect-url"
-                          :value (hunchentoot:request-uri*))
-                   "save"))
-               (td ()
-                 (button (:command "show-modal"
-                          :commandfor "confirm-delete"
-                          :type "button")
-                   "delete"))))
-           (hr ())
-           (html-table ()
-
-             ;; Create a edit row for table field
-             ,@(loop :for field :in (remove "id" (table-fields def)
-                                            :key #'field-namestring
-                                            :test #'string=)
-                     :collect
-                     `(generate-form-input-from-field
-                       :namestring ,(field-namestring field)
-
-                       ;; a page config struct instance can't be
-                       ;; dumped to a fasl, so dump a serialized
-                       ;; version instead
-                       :page-config-literal ',(generate-page-config-literal
-                                               (get-page-config field))
-                       :references ',(field-references field)
-                       :type ',(field-type field)
-                       :value (,(field-accessor field) table-value)))))
-         
-         ;; delete modal for deleting a record
-         (dialog (:id "confirm-delete")
-           (html-table ()
-             (tr ()
-               (td ()
-                 (a (:href ,(generate-table-url
-                                    def "delete"
-                                    :id `(,(table-id-accessor def)
-                                          table-value)))
-                   (button () "Permanently Delete?"))))
-             (tr ()
-               (td ()
-                 (hr ())))
-             (tr ()
-               (td ()
-                 (button (:command "close"
-                          :commandfor "confirm-delete"
-                          :type "button")
-                   "Cancel")))))))))
-
-(defmacro derive-delete-page-from-table (table-name)
+(defun derive-edit-page-from-table (table-name)
   (let ((def (find-table table-name)))
-    `(hunchentoot:define-easy-handler
-         (,(open-orders.fn:symbolicate table-name '-delete)
-          :uri ,(table-url def "delete"))
-         (id)
+
+    (register-page
+     (table-url def "edit")
+     (lambda-with-parameters (id)
+       (let ((table-value (funcall (table-get-function def)            
+                                   (parse-integer id :junk-allowed t))))
+         (with-internal-page
+           (hr ())
+           (form (:method "post" :action (table-url def "save" (cons :id id)))
+             (html-table ()
+               (tr ()
+                 (td ()
+                   (Button (:type "submit" :name "redirect-url"
+                            :value (table-url def "list"))
+                     "back"))
+                 (td ()
+                   (button (:type "submit" :name "redirect-url"
+                            :value (hunchentoot:request-uri*))
+                     "save"))
+                 (td ()
+                   (button (:command "show-modal"
+                            :commandfor "confirm-delete"
+                            :type "button")
+                     "delete"))))
+             (hr ())
+             (html-table ()
+
+               ;; Create a edit row for table field
+               (loop :for field :in (remove "id" (table-fields def)
+                                              :key #'field-namestring
+                                              :test #'string=)
+                       :collect
+                       (generate-form-input-from-field
+                         :namestring (field-namestring field)
+
+                         ;; a page config struct instance can't be
+                         ;; dumped to a fasl, so dump a serialized
+                         ;; version instead
+                         :page-config (get-page-config field)
+                         :references (field-references field)
+                         :type (field-type field)
+                         :value (funcall (field-accessor field) table-value)))))
+           
+           ;; delete modal for deleting a record
+           (dialog (:id "confirm-delete")
+             (html-table ()
+               (tr ()
+                 (td ()
+                   (a (:href (table-url
+                               def "delete"
+                               (cons :id (funcall (table-id-accessor def)
+                                                  table-value))))
+                     (button () "Permanently Delete?"))))
+               (tr ()
+                 (td ()
+                   (hr ())))
+               (tr ()
+                 (td ()
+                   (button (:command "close"
+                            :commandfor "confirm-delete"
+                            :type "button")
+                     "Cancel")))))))))))
+
+(defun derive-delete-page-from-table (table-name)
+  (let ((def (find-table table-name)))
+    (register-page
+     (table-url def "delete")
+     (lambda-with-parameters (id)
        (perform-auth-check)
-       (let* ((val (,(table-get-function def) (parse-integer id :junk-allowed t))))
-         (,(table-delete-function def) val)
-         (hunchentoot:redirect ,(generate-table-url def "list")
-                               :code 303)))))
+       (let* ((val (funcall (table-get-function def)
+                            (parse-integer id :junk-allowed t))))
+         (funcall (table-delete-function def) val)
+         (hunchentoot:redirect (table-url def "list")
+                               :code 303))))))
