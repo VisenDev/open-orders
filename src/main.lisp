@@ -147,7 +147,7 @@
 
 (defmacro derive-all-pages (table-name)
   `(progn
-     (derive-list-page-from-table ,table-name)
+     (derive-list-page-from-table ',table-name)
      (derive-new-page-from-table ,table-name)
      (derive-delete-page-from-table ,table-name)
      (derive-save-page-from-table ,table-name)

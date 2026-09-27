@@ -24,6 +24,18 @@
 
 (defparameter *max-columns-on-mobile* 2)
 
+(defvar *hunchentoot-dispatchers* (make-hash-table :test 'equal))
+(fn (register-page t) ((url string) (callback (function () t)))
+  "Registers a hunchentoot dispatcher match url"
+  (let ((existing-dispatcher (gethash url *hunchentoot-dispatchers*)))
+    (when (not (null existing-dispatcher))
+      (setf hunchentoot:*dispatch-table*
+            (delete existing-dispatcher hunchentoot:*dispatch-table*))))
+
+  (let ((dispatcher (hunchentoot:create-prefix-dispatcher url callback)))
+    (setf (gethash url *hunchentoot-dispatchers*) dispatcher)
+    (push dispatcher hunchentoot:*dispatch-table*)))
+
 (defstruct (page-config (:conc-name config-)
                         (:constructor page-config))
   (show-in-list-view-p nil :type boolean)
@@ -31,59 +43,46 @@
   (display-name nil :type (or string null))
   (compare-function nil #|:type (function (t t) boolean)|#))
 
-(fn (generate-page-config-literal list) ((config page-config))
-  "A struct literal can't be dumped to a fasl, so when I 
-   need to save a page config to the fasl, this function
-   can be used to create a declarative page config constructor"
-  `(page-config
-    :show-in-list-view-p ,(config-show-in-list-view-p config)
-    :display-as ,(config-display-as config)
-    :display-name ,(config-display-name config)
-    :compare-function ',(config-compare-function config)))
+;; (fn (generate-page-config-literal list) ((config page-config))
+;;   "A struct literal can't be dumped to a fasl, so when I 
+;;    need to save a page config to the fasl, this function
+;;    can be used to create a declarative page config constructor"
+;;   `(page-config
+;;     :show-in-list-view-p ,(config-show-in-list-view-p config)
+;;     :display-as ,(config-display-as config)
+;;     :display-name ,(config-display-name config)
+;;     :compare-function ',(config-compare-function config)))
 
 (fn (geta t) (item (alist list) &key (test #'equal))
   "Alist equivalent to getf"
   (cdr (assoc item alist :test test)))
 
 (fn (default-compare-function boolean) ((a t) (b t))
-  (not
-   (not
-    (string< (format nil "~a" a)
-             (format nil "~a" b)))))
+  (not (not (string< (format nil "~a" a)
+                     (format nil "~a" b)))))
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (fn (table-url string) ((def table) (page (or string symbol)))
-    "Get the url for a specific table page, and format GET parameters"
-    (string-downcase (format nil "/~a/~a" (table-namestring def) page)))
+(fn (table-url string) ((def table) (page (or string symbol)) &rest params-alist)
+  "Get the url for a specific table page, and format GET parameters"
+  (apply #'concatenate 'string (string-downcase
+                                (format nil "/~a/~a"
+                                        (table-namestring def) page))
+         (when params-alist "?")
+         (butlast (loop :for (key . value) :in (remove nil params-alist)
+                        :collect (format nil "~a=~a"
+                                         (string-downcase
+                                          (url-encode (format nil "~a" key)))
+                                         (url-encode (format nil "~a" value)))
+                        :collect "&"))))
 
-  (fn (generate-table-url t)
-      ((def table) (page (or string symbol)) &rest parameter-plist)
-    (if parameter-plist
-        `(format nil ,(apply #'concatenate 'string (table-url def page)
-                             (when parameter-plist "?")
-                             (loop :for (key value) :on parameter-plist :by #'cddr
-                                   :appending (list (string-downcase
-                                                     (format nil "~a=~~a" key))
-                                                    "&")
-                                     :into forms
-                                   :finally (return (butlast forms))))
-                 ,@(loop :for (key value) :on parameter-plist :by #'cddr
-                         :collect (if (stringp value)
-                                      (url-encode value)
-                                      `(url-encode
-                                        (format nil "~a" ,value)))))
-        (table-url def page)))
-  
+(fn (get-page-config (or page-config null)) ((field field))
+  (let ((config (getf (field-metadata field) :page-config)))
 
-  (fn (get-page-config (or page-config null)) ((field field))
-    (let ((config (getf (field-metadata field) :page-config)))
-
-      ;; Construct config declaratively 
-      (cond (config
-             (assert (eq (first config) 'page-config))
-             (apply #'page-config (rest config)))
-            (t
-             (page-config))))))
+    ;; Construct config declaratively 
+    (cond (config
+           (assert (eq (first config) 'page-config))
+           (apply #'page-config (rest config)))
+          (t
+           (page-config)))))
 
 (fn (get-every-table-value-filtered (or vector null))
       ((table-name symbol)
@@ -117,129 +116,135 @@
           (nreverse sorted)
           sorted)))
 
+(defmacro lambda-with-parameters (parameters &body body)
+  "Creates a lambda that binds the variable list parameters to http 
+   parameters in its body"
+  `(lambda ()
+     (let ,(mapcar (lambda (param)
+                     `(,param (hunchentoot:parameter ,(string-downcase
+                                                       (symbol-name param)))))
+            parameters)
+       ,@body)))
 
-
-(defmacro derive-list-page-from-table (table-name &key (create-toplevel-link t))
+(defun derive-list-page-from-table (table-name &key (create-toplevel-link t))
   (let* ((def (find-table table-name))
          (listed-fields (remove-if-not
                          (lambda (field)
                            (config-show-in-list-view-p (get-page-config field)))
                          (table-fields def))))
-    `(progn
 
-       ;; Add Toplevel Url
-       ,(when create-toplevel-link
-          `(pushnew (make-tab :name ,(format nil " [~a] " (table-namestring def))
-                              :url ,(generate-table-url def "list"))
-                    *toplevel-tabs* :test #'equalp))
+    ;; Add Toplevel Url
+    (when create-toplevel-link
+      (pushnew (make-tab :name (format nil " [~a] " (table-namestring def))
+                         :url (table-url def "list"))
+               *toplevel-tabs* :test #'equalp))
 
-       (hunchentoot:define-easy-handler
-           (,(open-orders.fn:symbolicate table-name '-list)
-            :uri ,(generate-table-url def "list"))
-           (sort-by reverse search clear)
-         (when clear (setf search nil))
-         (let ((mobilep (mobile-browser-p))
-               (new-form
-                 (td ()
-                   (form (:action ,(format nil "/~a/new" (table-namestring def)))
-                     (input
-                      (:type "submit"
-                       :value ,(format nil "new ~a" (table-namestring def)))))))
-               (list-form (td ()
-                            (form (:action ,(table-url def "list"))
-                              (input (:type "text"
-                                      :name "search"
-                                      :value (if search search "")))
+    ;; Register Page Handler
+    (register-page
+     (generate-table-url def "list")
+     (lambda-with-parameters (sort-by reverse search clear)
+       (when clear (setf search nil))
+       (let ((mobilep (mobile-browser-p))
+             (new-form
+               (td ()
+                 (form (:action (table-url def "new"))
+                   (input
+                    (:type "submit"
+                     :value (format nil "new ~a" (table-namestring def)))))))
+             (list-form (td ()
+                          (form (:action (table-url def "list"))
+                            (input (:type "text"
+                                    :name "search"
+                                    :value (if search search "")))
+                            (input (:type "submit"
+                                    :value "Search"))
+                            (when search
                               (input (:type "submit"
-                                      :value "Search"))
-                              (when search
-                                (input (:type "submit"
-                                        :name "clear"
-                                        :value "Clear")))))))
-           (declare (ignorable mobilep))
-           (with-internal-page
-             (hr ())
-             (html-table ()
-               (if mobilep
-                   (list (tr () new-form)
-                         (tr () list-form))
-                   (tr ()
-                     new-form list-form)))
-             (hr ())
-             (html-table (:class "border")
-
-               ;; table header
-               (tr ()
-                 ,@(loop :for field :in listed-fields
-                         :for config = (get-page-config field)
-                         :for i :from 0
-                         :collect
-                         `(unless ,(if (< i *max-columns-on-mobile*)
-                                       nil
-                                       'mobilep)
-                            (th ()
-                              (a (:href
-                                  (if
-                                   search
-                                   ,(generate-table-url
-                                     def "list"
-                                     :sort-by (field-namestring field)
-                                     :reverse '(if (string= reverse "true")
-                                                "false" "true")
-                                     :search 'search)
-                                   ,(generate-table-url
-                                     def "list"
-                                     :sort-by (field-namestring field)
-                                     :reverse '(if (string= reverse "true")
-                                                "false" "true"))))
-                                ,(format nil "[~a]"
-                                         (or (config-display-name config)
-                                             (field-namestring field))))))))
-
-               ;; table body
-               (loop
-                 :for val :across (get-every-table-value-filtered
-                                   ',table-name sort-by search reverse )
-                 :collect
+                                      :name "clear"
+                                      :value "Clear")))))))
+         (declare (ignorable mobilep))
+         (with-internal-page
+           (hr ())
+           (html-table ()
+             (if mobilep
+                 (list (tr () new-form)
+                       (tr () list-form))
                  (tr ()
-                   ,@(loop
-                       :for field :in listed-fields
-                       :for i :from 0
-                       :collect
-                       `(unless ,(if (< i *max-columns-on-mobile*)
-                                     nil
-                                     'mobilep)
-                          (td ()
-                            (a (:href ,(generate-table-url
-                                        def
-                                        "edit"
-                                        :id `(,(table-id-accessor def) val)))
-                              ,(let* ((display-as (config-display-as
-                                                   (get-page-config field)))
-                                      (reference-def
-                                        (find-table
-                                         (field-references field))))
+                   new-form list-form)))
+           (hr ())
+           (html-table (:class "border")
 
-                                 ;; DISPLAY AS AND REFERENCES
-                                 (cond
-                                   
-                                   ((and reference-def display-as)
-                                    `(ignore-errors
-                                      (,display-as
-                                       (,(table-get-function reference-def)
-                                        (,(field-accessor field) val)))))
-                                   
-                                   (reference-def
-                                    `(,(table-get-function reference-def)
-                                      (,(field-accessor field) val)))
+             ;; table header
+             (tr ()
+               (remove
+                nil
+                (loop :for field :in listed-fields
+                      :for config = (get-page-config field)
+                      :for i :from 0
+                      :collect
+                      (unless (and mobilep
+                                   (< i *max-columns-on-mobile*))
+                        (th ()
+                          (a (:href
+                              (table-url
+                               def "list"
+                               (cons :sort-by (field-namestring field))
+                               (cons :reverse (if (string= reverse "true")
+                                                  "false" "true"))
+                               (when search (cons :search search))))
+                            
+                            (format nil "[~a]"
+                                    (or (config-display-name config)
+                                        (field-namestring field)))))))))
 
-                                   (display-as
-                                    `(ignore-errors
-                                      (,display-as
-                                       (,(field-accessor field) val))))
+             ;; table body
+             (loop
+               :for val :across (get-every-table-value-filtered
+                                 table-name sort-by search reverse )
+               :collect
+               (tr ()
+                 (remove
+                  nil
+                  (loop
+                    :for field :in listed-fields
+                    :for i :from 0
+                    :collect
+                    (unless (and mobilep
+                                 (< i *max-columns-on-mobile*))
+                      (td ()
+                        (a (:href (table-url
+                                   def
+                                   "edit"
+                                   (cons :id (funcall
+                                              (table-id-accessor def) val))))
+                          (let* ((display-as (config-display-as
+                                              (get-page-config field)))
+                                 (reference-def
+                                   (find-table
+                                    (field-references field))))
 
-                                   (t
-                                    `(,(field-accessor field) val)))))))))))))))))
+                            ;; DISPLAY AS AND REFERENCES
+                            (cond
+                              
+                              ((and reference-def display-as)
+                               (ignore-errors
+                                (funcall
+                                 display-as
+                                 (funcall (table-get-function reference-def)
+                                          (funcall (field-accessor field) val)))))
+                              
+                              (reference-def
+                               (funcall (table-get-function reference-def)
+                                        (funcall (field-accessor field) val)))
+
+                              (display-as
+                               (ignore-errors
+                                (funcall display-as
+                                         (funcall (field-accessor field) val))))
+
+                              (t
+                               (funcall (field-accessor field)
+                                        val))))))))))))))))))
 
 (defmacro derive-new-page-from-table (table-name)
   (let ((def (find-table table-name)))
