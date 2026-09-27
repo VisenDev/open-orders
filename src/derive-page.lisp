@@ -296,7 +296,7 @@
          (id)
        
        (let* ((params (hunchentoot:post-parameters*))
-              (id (parse-integer id))
+              (id (parse-integer id :junk-allowed t))
               (redirect-url (geta "redirect-url" params))
               (val (,(table-get-function def) id)))
 
@@ -323,85 +323,95 @@
           :uri ,(table-url def "edit"))
          (id ,@get-parameters)
        (let ((,save-endpoint-variable ,(generate-table-url def "save" :id 'id))
-             (,edit-value-variable (,(table-get-function def) (parse-integer id))))
+             (,edit-value-variable (,(table-get-function def)
+                                    (parse-integer id :junk-allowed t))))
          (declare (ignorable ,save-endpoint-variable ,edit-value-variable))
          ,@body))))
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defun generate-form-input-from-field (&key namestring references
-                                           page-config-literal type value)
-    
-    (let* ((page-config (or (when page-config-literal
-                             (assert (eq 'page-config (first page-config-literal)))
-                             (apply #'page-config (rest page-config-literal)))
-                           (page-config)))
-           (display-name (or (config-display-name page-config)
-                             namestring)))
-      (tr ()
-        (td () display-name)
-        (td ()
-          (if references
+(defun generate-form-input-from-field (&key namestring references
+                                         page-config-literal type value)
+  
+  (let* ((page-config (or (when page-config-literal
+                            (assert (eq 'page-config (first page-config-literal)))
+                            (apply #'page-config (rest page-config-literal)))
+                          (page-config)))
+         (display-name (or (config-display-name page-config)
+                           namestring))
+         (input
+           (if references
+               ;; Dropdown for foreign tables
+               (list
+                
+                (select (:name namestring)
+                  ;; Foreign table definition lookup
+                  (loop
+                    :with foreign-def = (find-table references)
+                    :with get-every = (table-get-every-function foreign-def)
+                    :for foreign-table-value :across (funcall get-every)
+                    :for foreign-id
+                      = (funcall (table-id-accessor foreign-def)
+                                 foreign-table-value)
 
-              ;; Dropdown for foreign tables
-              (list
+                    :for option-body =
+                                     (if (config-display-as page-config)
+                                         (ignore-errors
+                                          (funcall (config-display-as page-config)
+                                                   foreign-table-value))
+                                         foreign-table-value)
+                                     
+                                     ;; collect html options for each foreign value
+                    :collect
+
+                    ;; eql not '=', since foreign id may
+                    ;; be nil
+                    (if (eql foreign-id value)
+                        (option (:selected "selected"
+                                 :value foreign-id)
+                          option-body)
+
+                        ;; else the id is not the currently
+                        ;; chosen id
+                        (option (:value foreign-id)
+                          option-body))))
+
+                ;; View button
+                (button (:type "submit"
+                         :name "redirect-url"
+                         :value (format nil "~a?id=~a"
+                                        (table-url
+                                         (find-table references) "edit" )
+                                        value))
+                  "View"))
                
-               (select (:name namestring)
-                 ;; Foreign table definition lookup
-                 (loop
-                   :with foreign-def = (find-table references)
-                   :with get-every = (table-get-every-function foreign-def)
-                   :for foreign-table-value :across (funcall get-every)
-                   :for foreign-id
-                     = (funcall (table-id-accessor foreign-def)
-                                foreign-table-value)
+               ;; else if the field doesn't reference any table
+               ;; Just make it an input not a dropdown
+               (input (:name namestring
+                       :value (cond
+                                ((eq type 'date)
+                                 (multiple-value-bind
+                                       (second minute hour date year month)
+                                     (decode-universal-time value)
+                                   (declare (ignore second minute hour))
+                                   (format nil "~a-~2,'0d-~2,'0d" year month date)))
+                                (t value))
+                       :type (cond
+                               ((eq type 'date) "date")
+                               ((subtypep type 'number) "number")
+                               ((subtypep type 'boolean) "checkbox")
+                               (t "text")))))))
+    (if (mobile-browser-p)
+        (list
+         (tr ()
+           (td () display-name))
+         (tr ()
+           (td () input))
+         (tr ()
+           (td () (hr ()))))
 
-                   :for option-body =
-                                    (if (config-display-as page-config)
-                                        (ignore-errors
-                                         (funcall (config-display-as page-config)
-                                                  foreign-table-value))
-                                        foreign-table-value)
-                                    
-                                    ;; collect html options for each foreign value
-                   :collect
-
-                   ;; eql not '=', since foreign id may
-                   ;; be nil
-                   (if (eql foreign-id value)
-                       (option (:selected "selected"
-                                :value foreign-id)
-                         option-body)
-
-                       ;; else the id is not the currently
-                       ;; chosen id
-                       (option (:value foreign-id)
-                         option-body))))
-
-               ;; View button
-               (button (:type "submit"
-                        :name "redirect-url"
-                        :value (format nil "~a?id=~a"
-                                       (table-url
-                                        (find-table references) "edit" )
-                                       value))
-                 "View"))
-              
-              ;; else if the field doesn't reference any table
-              ;; Just make it an input not a dropdown
-              (input (:name namestring
-                      :value (cond
-                              ((eq type 'date)
-                               (multiple-value-bind
-                                     (second minute hour date year month)
-                                   (decode-universal-time value)
-                                 (declare (ignore second minute hour))
-                                 (format nil "~a-~2,'0d-~2,'0d" year month date)))
-                              (t value))
-                      :type (cond
-                              ((eq type 'date) "date")
-                              ((subtypep type 'number) "number")
-                              ((subtypep type 'boolean) "checkbox")
-                              (t "text"))))))))))
+        ;; else
+        (tr ()
+          (td () display-name)
+          (td () input)))))
 
 (defmacro derive-edit-page-from-table (table-name)
   (let ((def (find-table table-name))) 
@@ -471,7 +481,7 @@
           :uri ,(table-url def "delete"))
          (id)
        (perform-auth-check)
-       (let* ((val (,(table-get-function def) (parse-integer id))))
+       (let* ((val (,(table-get-function def) (parse-integer id :junk-allowed t))))
          (,(table-delete-function def) val)
          (hunchentoot:redirect ,(generate-table-url def "list")
                                :code 303)))))
