@@ -20,7 +20,8 @@
    #:define-edit-page-for-table
    #:derive-edit-page-from-table
    #:derive-delete-page-from-table
-   #:derive-view-reference-page-from-table))
+   #:derive-view-reference-page-from-table
+   #:derive-set-field-page-from-table))
 (in-package #:open-orders.derive-page)
 
 (defparameter *max-columns-on-mobile* 2)
@@ -43,7 +44,8 @@
   (display-as nil #|:type (function (t) string)|#)
   (display-name nil :type (or string null))
   (compare-function nil #|:type (function (t t) boolean)|#)
-  (suggested-values nil :type list))
+  (suggested-values nil :type list)
+  (edit-ui-generator nil #|:type (function (field-value) t)|#))
 
 (fn (geta t) (item (alist list) &key (test #'equal))
   "Alist equivalent to getf"
@@ -266,6 +268,9 @@
              (parse-integer month)
              (parse-integer year))))
          (random (get-universal-time))))
+    ((eq type 'list)
+     (let ((cl:*read-eval* nil))
+       (read-from-string form-data-string)))
     ((subtypep type 'integer)
      (parse-integer form-data-string :junk-allowed t))
     ((subtypep type 'boolean)
@@ -276,18 +281,38 @@
     (t
      (error "Don't know how to convert the type '~a' from a string" type))))
 
-(fn (deserialize-field-from-http-parameters t) ((post-parameters list)
+(fn (deserialize-field-from-http-parameter t) ((field-form-value (or null string))
                                                 (table-value t)
                                                 (field field))
-  (let ((field-form-value (geta (field-namestring field) post-parameters)))
-    (when field-form-value
-      (funcall
-       (fdefinition `(setf ,(field-accessor field)))
-       (coerce-form-data-to-type field-form-value
-                                 (if (field-references field)
-                                     'integer
-                                     (field-type field)))
-       table-value))))
+  (when field-form-value
+    (funcall
+     (fdefinition `(setf ,(field-accessor field)))
+     (coerce-form-data-to-type field-form-value
+                               (if (field-references field)
+                                   'integer
+                                   (field-type field)))
+     table-value)))
+
+(defun derive-set-field-page-from-table (table-name)
+  (let* ((def (find-table table-name)))
+    (register-page
+     (table-url def "set-field")
+     (lambda-with-parameters (id field-namestring value redirect-url)
+       (let* ((id (parse-integer id :junk-allowed t))
+              (table-val (funcall (table-get-function def) id))
+              (field (find field-namestring (table-fields def)
+                           :test #'string=
+                           :key #'field-namestring)))
+
+         (assert field)
+
+         (deserialize-field-from-http-parameter value table-val field)
+         
+         ;; Save Value
+         (funcall (table-set-function def) table-val)
+
+         ;; Redirect (get, post, redirect pattern)
+         (hunchentoot:redirect redirect-url :code 303))))))
 
 (defun derive-save-page-from-table (table-name)
   (let* ((def (find-table table-name)))
@@ -301,8 +326,9 @@
 
          ;; iterate over all fields, getting their values from
          ;; parameters and setting them when non-null
-         (mapcar (lambda (field) (deserialize-field-from-http-parameters
-                                  params val field))
+         (mapcar (lambda (field) (deserialize-field-from-http-parameter
+                                  (geta (field-namestring field) params)
+                                  val field))
                  
                  (remove "id" (table-fields def) :key #'field-namestring
                                                  :test #'string=))
@@ -315,114 +341,122 @@
 
 (fn (generate-form-input-from-field t) (&key ((id integer))
                                              ((def table))
-                                             ((namestring string))
-                                             ((references (or symbol null)))
-                                             ((page-config page-config))
-                                             type value
-                                             &aux input-form foreign-def)
-  (when references (setf foreign-def (find-table references)))
-  (setf
-   input-form
-   (if references
-       ;; Dropdown for foreign tables
-       (list
-        
-        (select (:name namestring)
-          ;; Foreign table definition lookup
-          (loop
-            :with get-every = (table-get-every-function foreign-def)
-            :with all-foreign-values = (funcall get-every)
-            :with sorted-values = (sort all-foreign-values #'string<
-                                        :key (if (config-display-as page-config)
-                                                 (config-display-as page-config)
-                                                 (lambda (thing) (format nil "~a" thing))))
-            :for foreign-table-value :across sorted-values
-            :for foreign-id
-              = (funcall (table-id-accessor foreign-def)
-                         foreign-table-value)
+                                             ((field field))
+                                             value)
+  (let* ((references (field-references field))
+         (foreign-def  (find-table references))
+         (namestring (field-namestring field))
+         (page-config (get-page-config field))
+         (type (field-type field))
+         (input-form 
+           (cond
 
-            :for option-body =
-                             (if (config-display-as page-config)
-                                 (ignore-errors
-                                  (funcall (config-display-as page-config)
-                                           foreign-table-value))
-                                 foreign-table-value)
-                             
-                             ;; collect html options for each foreign value
-            :collect
+             ((config-edit-ui-generator page-config)
+              (funcall (config-edit-ui-generator page-config) id def field value))
 
-            ;; eql not '=', since foreign id may
-            ;; be nil
-            (if (eql foreign-id value)
-                (option (:selected "selected"
-                         :value foreign-id)
-                  option-body)
+             ((not (null references))
+              ;; Dropdown for foreign tables
+              (list
+               
+               (select (:name namestring)
+                 ;; Foreign table definition lookup
+                 (loop
+                   :with get-every = (table-get-every-function foreign-def)
+                   :with all-foreign-values = (funcall get-every)
+                   :with sorted-values = (sort all-foreign-values #'string<
+                                               :key (if (config-display-as page-config)
+                                                        (config-display-as page-config)
+                                                        (lambda (thing)
+                                                          (format nil "~a" thing))))
+                   :for foreign-table-value :across sorted-values
+                   :for foreign-id
+                     = (funcall (table-id-accessor foreign-def)
+                                foreign-table-value)
 
-                ;; else the id is not the currently
-                ;; chosen id
-                (option (:value foreign-id)
-                  option-body))))
+                   :for option-body =
+                                    (if (config-display-as page-config)
+                                        (ignore-errors
+                                         (funcall (config-display-as page-config)
+                                                  foreign-table-value))
+                                        foreign-table-value)
+                                    
+                                    ;; collect html options for each foreign value
+                   :collect
 
-        ;; View Foreign Table Value Button
-        (button (:type "submit"
-                 :name "redirect-url"
-                 :value (table-url def "view-reference"
-                                   (cons :id id)
-                                   (cons :field-name namestring)
-                                   (cons :back-url (hunchentoot:request-uri*))))
-          "View")
+                   ;; eql not '=', since foreign id may
+                   ;; be nil
+                   (if (eql foreign-id value)
+                       (option (:selected "selected"
+                                :value foreign-id)
+                         option-body)
 
-        ;; New reference button
-        (button (:type "submit"
-                 :name "redirect-url"
-                 :value (table-url foreign-def "new"
-                                   (cons :back-url (hunchentoot:request-uri*))))
-          "New"))
-       
-       ;; else if the field doesn't reference any table
-       ;; Just make it an input not a dropdown
-       (remove
-        nil
+                       ;; else the id is not the currently
+                       ;; chosen id
+                       (option (:value foreign-id)
+                         option-body))))
+
+               ;; View Foreign Table Value Button
+               (button (:type "submit"
+                        :name "redirect-url"
+                        :value (table-url def "view-reference"
+                                          (cons :id id)
+                                          (cons :field-name namestring)
+                                          (cons :back-url (hunchentoot:request-uri*))))
+                 "View")
+
+               ;; New reference button
+               (button (:type "submit"
+                        :name "redirect-url"
+                        :value (table-url foreign-def "new"
+                                          (cons :back-url (hunchentoot:request-uri*))))
+                 "New")))
+
+             (t
+              
+              ;; else if the field doesn't reference any table
+              ;; Just make it an input not a dropdown
+              (remove
+               nil
+               (list
+                (input (:name namestring
+                        :value (cond
+                                 ((eq type 'date)
+                                  (multiple-value-bind
+                                        (second minute hour date month year)
+                                      (decode-universal-time value)
+                                    (declare (ignore second minute hour))
+                                    (format nil "~a-~2,'0d-~2,'0d" year month date)))
+                                 (t value))
+                        :type (cond
+                                ((eq type 'date) "date")
+                                ((subtypep type 'number) "number")
+                                ((subtypep type 'boolean) "checkbox")
+                                (t "text"))
+                        :list (when (config-suggested-values page-config)
+                                (format nil "~a-list" namestring))))
+
+                ;; suggested values
+                (when (config-suggested-values page-config)
+                  (datalist (:id (format nil "~a-list" namestring))
+                    (loop :for suggested :in (config-suggested-values page-config)
+                          :collect (option (:value suggested)))))))))))
+
+    
+    (if (mobile-browser-p)
         (list
-         (input (:name namestring
-                 :value (cond
-                          ((eq type 'date)
-                           (multiple-value-bind
-                                 (second minute hour date month year)
-                               (decode-universal-time value)
-                             (declare (ignore second minute hour))
-                             (format nil "~a-~2,'0d-~2,'0d" year month date)))
-                          (t value))
-                 :type (cond
-                         ((eq type 'date) "date")
-                         ((subtypep type 'number) "number")
-                         ((subtypep type 'boolean) "checkbox")
-                         (t "text"))
-                 :list (when (config-suggested-values page-config)
-                         (format nil "~a-list" namestring))))
+         (tr ()
+           (td () (or (config-display-name page-config)
+                      namestring)))
+         (tr ()
+           (td () input-form))
+         (tr ()
+           (td () (hr ()))))
 
-         ;; suggested values
-         (when (config-suggested-values page-config)
-           (datalist (:id (format nil "~a-list" namestring))
-             (loop :for suggested :in (config-suggested-values page-config)
-                   :collect (option (:value suggested)))))))))
-
-  
-  (if (mobile-browser-p)
-      (list
-       (tr ()
-         (td () (or (config-display-name page-config)
-                    namestring)))
-       (tr ()
-         (td () input-form))
-       (tr ()
-         (td () (hr ()))))
-
-      ;; else
-      (tr ()
-        (td () (or (config-display-name page-config)
-                   namestring))
-        (td () input-form))))
+        ;; else
+        (tr ()
+          (td () (or (config-display-name page-config)
+                     namestring))
+          (td () input-form)))))
 
 (defun derive-edit-page-from-table (table-name)
   (let ((def (find-table table-name)))
@@ -488,15 +522,8 @@
                        (generate-form-input-from-field
                         :id (or (parse-integer id :junk-allowed t) 0)
                         :def def
-                        :namestring (field-namestring field)
-
-                         ;; a page config struct instance can't be
-                         ;; dumped to a fasl, so dump a serialized
-                         ;; version instead
-                         :page-config (get-page-config field)
-                         :references (field-references field)
-                         :type (field-type field)
-                         :value (funcall (field-accessor field) table-value)))))
+                        :field field
+                        :value (funcall (field-accessor field) table-value)))))
            
            ;; delete modal for deleting a record
            (dialog (:id "confirm-delete")

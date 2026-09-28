@@ -17,7 +17,7 @@
 ;;;; IMPORTANT
 ;;;; Setting catch-errors-p to nil enables the lisp debugger
 ;;;; This should be set to t when running in production
-(setf hunchentoot:*catch-errors-p* t)
+(setf hunchentoot:*catch-errors-p* nil)
 
 (defvar *acceptor* nil)
 
@@ -115,6 +115,42 @@
           :type string :initform ""
           :metadata (:page-config (page-config :show-in-list-view-p t)))))
 
+(defstruct shipment date amount)
+
+(defun generate-release-schedule-edit-ui (id def field value)
+  (td ()
+    (html-table ()
+      (tr ()
+        (td ()
+          (button (:type "submit"
+                   :name "redirect-url"
+                   :value (table-url def "set-field"
+                                     (cons :id id)
+                                     (cons :field-namestring
+                                           (field-namestring field))
+                                     (cons :value
+                                           (let ((*package* (find-package 'cl)))
+                                             (format nil "~S"
+                                                     (cons
+                                                      (make-shipment
+                                                       :amount 1000
+                                                       :date (get-universal-time))
+                                                      value))))
+                                     (cons :redirect-url
+                                           (hunchentoot:request-uri*))))
+            "Add Row")))
+      (loop
+        :for shipment :in value
+        :for i :from 0
+        :collect
+        (tr ()
+          (td () (input (:value (shipment-date shipment)
+                         :name (format nil "~a-~a-date" (field-namestring field)
+                                       i))))
+          (td () (input (:value (shipment-amount shipment)
+                         :name (format nil "~a-~a-amount" (field-namestring field)
+                                       i)))))))))
+
 (define-table po-details
     ((field part-number :type string
                         :initform
@@ -142,8 +178,8 @@
                                                :compare-function <)))
 
      (field revision :type string :initform (open-orders.random:capital-letter)
-            :metadata (:page-config (page-config
-                                     :suggested-values ("A" "B" "C" "D" "E" "F"))))
+                     :metadata (:page-config (page-config
+                                              :suggested-values ("A" "B" "C" "D" "E" "F"))))
      (field price-each :type string
                        :initform (format nil "~a.~a" (random 3)
                                          (open-orders.random:n-digit-number 2)))
@@ -153,9 +189,9 @@
                                                                   "Prepay And Add"
                                                                   "Pickup"))))
      (field billing-terms :type string :initform "Net30"
-            :metadata (:page-config (page-config
-                                     :suggested-values ("Net20" "Net30" "Net60"
-                                                                "Net90"))))
+                          :metadata (:page-config (page-config
+                                                   :suggested-values ("Net20" "Net30" "Net60"
+                                                                              "Net90"))))
      (field material-type :type string :initform "")
      (field job-status :type string :initform "Waiting"
                        :metadata (:page-config (page-config
@@ -166,7 +202,15 @@
      (field notes :type string :initform ""
                   :metadata (:page-config (page-config
                                            :show-in-list-view-p t
-                                           :suggested-values ("Wess Part"))))))
+                                           :suggested-values ("Wess Part"))))
+     (field
+      release-schedule
+      :type list
+      :metadata
+      (:page-config
+       (page-config
+        :edit-ui-generator
+        generate-release-schedule-edit-ui)))))
 
 (defun derive-all-pages (table-name)
   (derive-list-page-from-table table-name)
@@ -174,7 +218,8 @@
   (derive-delete-page-from-table table-name)
   (derive-save-page-from-table table-name)
   (derive-edit-page-from-table table-name)
-  (derive-view-reference-page-from-table table-name))
+  (derive-view-reference-page-from-table table-name)
+  (derive-set-field-page-from-table table-name))
 
 (pushnew (make-tab :name "<i>[logout]</i>" :url "/logout")
          *toplevel-tabs*
