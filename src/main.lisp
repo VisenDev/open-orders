@@ -15,9 +15,9 @@
 
 
 ;;;; IMPORTANT
-;;;; This enables the lisp debugger
-;;;; This should be DISABLED when running in production
-(setf hunchentoot:*catch-errors-p* nil)
+;;;; Setting catch-errors-p to nil enables the lisp debugger
+;;;; This should be set to t when running in production
+(setf hunchentoot:*catch-errors-p* t)
 
 (defvar *acceptor* nil)
 
