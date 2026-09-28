@@ -42,17 +42,8 @@
   (show-in-list-view-p nil :type boolean)
   (display-as nil #|:type (function (t) string)|#)
   (display-name nil :type (or string null))
-  (compare-function nil #|:type (function (t t) boolean)|#))
-
-;; (fn (generate-page-config-literal list) ((config page-config))
-;;   "A struct literal can't be dumped to a fasl, so when I 
-;;    need to save a page config to the fasl, this function
-;;    can be used to create a declarative page config constructor"
-;;   `(page-config
-;;     :show-in-list-view-p ,(config-show-in-list-view-p config)
-;;     :display-as ,(config-display-as config)
-;;     :display-name ,(config-display-name config)
-;;     :compare-function ',(config-compare-function config)))
+  (compare-function nil #|:type (function (t t) boolean)|#)
+  (suggested-values nil :type list))
 
 (fn (geta t) (item (alist list) &key (test #'equal))
   "Alist equivalent to getf"
@@ -127,6 +118,35 @@
             parameters)
        ,@body)))
 
+(fn (get-field-display-value t) ((field field) (table-value t))
+  "Convert a table field into what it should be displayed as in html"
+  (let* ((display-as (config-display-as
+                      (get-page-config field)))
+         (reference-def
+           (find-table
+            (field-references field))))
+
+    (cond
+      
+      ((and reference-def display-as)
+       (ignore-errors
+        (funcall
+         display-as
+         (funcall (table-get-function reference-def)
+                  (funcall (field-accessor field) table-value)))))
+      
+      (reference-def
+       (funcall (table-get-function reference-def)
+                (funcall (field-accessor field) table-value)))
+
+      (display-as
+       (ignore-errors
+        (funcall display-as
+                 (funcall (field-accessor field) table-value))))
+
+      (t
+       (funcall (field-accessor field) table-value)))))
+
 (defun derive-list-page-from-table (table-name &key (create-toplevel-link t))
   (let* ((def (find-table table-name))
          (listed-fields (remove-if-not
@@ -145,8 +165,7 @@
      (generate-table-url def "list")
      (lambda-with-parameters (sort-by reverse search clear)
        (when clear (setf search nil))
-       (let ((mobilep (mobile-browser-p))
-             (new-form
+       (let ((new-form
                (td ()
                  (form (:action (table-url def "new"))
                    (input
@@ -163,11 +182,10 @@
                               (input (:type "submit"
                                       :name "clear"
                                       :value "Clear")))))))
-         (declare (ignorable mobilep))
          (with-internal-page
            (hr ())
            (html-table ()
-             (if mobilep
+             (if (mobile-browser-p)
                  (list (tr () new-form)
                        (tr () list-form))
                  (tr ()
@@ -179,83 +197,60 @@
              (tr ()
                (remove
                 nil
-                (loop :for field :in listed-fields
-                      :for config = (get-page-config field)
-                      :for i :from 0
-                      :collect
-                      (unless (and mobilep
-                                   (< i *max-columns-on-mobile*))
-                        (th ()
-                          (a (:href
-                              (table-url
-                               def "list"
-                               (cons :sort-by (field-namestring field))
-                               (cons :reverse (if (string= reverse "true")
-                                                  "false" "true"))
-                               (when search (cons :search search))))
-                            
-                            (format nil "[~a]"
-                                    (or (config-display-name config)
-                                        (field-namestring field)))))))))
+                (loop
+                  :for field :in listed-fields
+                  :for i :from 0 :below (if (mobile-browser-p)
+                                            *max-columns-on-mobile*
+                                            (length listed-fields))
+                  :collect
+                  (th ()
+                    (a (:href
+                        (table-url
+                         def "list"
+                         (cons :sort-by (field-namestring field))
+                         (cons :reverse (if (string= reverse "true")
+                                            "false" "true"))
+                         (when search (cons :search search))))
+                      
+                      (format nil "[~a]"
+                              (or (config-display-name (get-page-config field))
+                                  (field-namestring field))))))))
 
              ;; table body
              (loop
                :for val :across (get-every-table-value-filtered
-                                 table-name sort-by search reverse )
+                                 table-name sort-by search reverse)
                :collect
                (tr ()
-                 (remove
-                  nil
-                  (loop
-                    :for field :in listed-fields
-                    :for i :from 0
-                    :collect
-                    (unless (and mobilep
-                                 (< i *max-columns-on-mobile*))
-                      (td ()
-                        (a (:href (table-url
-                                   def
-                                   "edit"
-                                   (cons :id (funcall
-                                              (table-id-accessor def) val))))
-                          (let* ((display-as (config-display-as
-                                              (get-page-config field)))
-                                 (reference-def
-                                   (find-table
-                                    (field-references field))))
-
-                            ;; DISPLAY AS AND REFERENCES
-                            (cond
-                              
-                              ((and reference-def display-as)
-                               (ignore-errors
-                                (funcall
-                                 display-as
-                                 (funcall (table-get-function reference-def)
-                                          (funcall (field-accessor field) val)))))
-                              
-                              (reference-def
-                               (funcall (table-get-function reference-def)
-                                        (funcall (field-accessor field) val)))
-
-                              (display-as
-                               (ignore-errors
-                                (funcall display-as
-                                         (funcall (field-accessor field) val))))
-
-                              (t
-                               (funcall (field-accessor field)
-                                        val))))))))))))))))))
+                 (loop
+                   :for field :in listed-fields
+                   :for i :from 0 :below (if (mobile-browser-p)
+                                             *max-columns-on-mobile*
+                                             (length listed-fields))
+                   :collect
+                   (td ()
+                     (a (:href (table-url
+                                def "edit"
+                                (cons :id (funcall
+                                           (table-id-accessor def) val))))
+                       (let ((display-value (get-field-display-value field val)))
+                         (if (or (null display-value)
+                                 (and (stringp display-value)
+                                      (string-equal display-value "")))
+                             "<i>&ltempty&gt</i>"
+                             display-value)
+                         )))))))))))))
 
 (defun derive-new-page-from-table (table-name)
   (let ((def (find-table table-name)))
     (register-page
      (table-url def "new")
-     (lambda-with-parameters ()
+     (lambda-with-parameters (back-url)
        (perform-auth-check)
        (let* ((new (funcall (table-constructor def)))
               (id (funcall (table-set-function def) new)))
-         (hunchentoot:redirect (table-url def "edit" (cons :id id))
+         (hunchentoot:redirect (table-url def "edit" (cons :id id)
+                                          (cons :back-url back-url))
                                :code 303))))))
 
 (defun coerce-form-data-to-type (form-data-string type)
@@ -324,7 +319,8 @@
                                              ((references (or symbol null)))
                                              ((page-config page-config))
                                              type value
-                                             &aux input-form)
+                                             &aux input-form foreign-def)
+  (when references (setf foreign-def (find-table references)))
   (setf
    input-form
    (if references
@@ -334,9 +330,13 @@
         (select (:name namestring)
           ;; Foreign table definition lookup
           (loop
-            :with foreign-def = (find-table references)
             :with get-every = (table-get-every-function foreign-def)
-            :for foreign-table-value :across (funcall get-every)
+            :with all-foreign-values = (funcall get-every)
+            :with sorted-values = (sort all-foreign-values #'string<
+                                        :key (if (config-display-as page-config)
+                                                 (config-display-as page-config)
+                                                 (lambda (thing) (format nil "~a" thing))))
+            :for foreign-table-value :across sorted-values
             :for foreign-id
               = (funcall (table-id-accessor foreign-def)
                          foreign-table-value)
@@ -363,30 +363,49 @@
                 (option (:value foreign-id)
                   option-body))))
 
-        ;; View button
+        ;; View Foreign Table Value Button
         (button (:type "submit"
                  :name "redirect-url"
                  :value (table-url def "view-reference"
                                    (cons :id id)
-                                   (cons :field-name namestring)))
-          "View"))
+                                   (cons :field-name namestring)
+                                   (cons :back-url (hunchentoot:request-uri*))))
+          "View")
+
+        ;; New reference button
+        (button (:type "submit"
+                 :name "redirect-url"
+                 :value (table-url foreign-def "new"
+                                   (cons :back-url (hunchentoot:request-uri*))))
+          "New"))
        
        ;; else if the field doesn't reference any table
        ;; Just make it an input not a dropdown
-       (input (:name namestring
-               :value (cond
-                        ((eq type 'date)
-                         (multiple-value-bind
-                               (second minute hour date month year)
-                             (decode-universal-time value)
-                           (declare (ignore second minute hour))
-                           (format nil "~a-~2,'0d-~2,'0d" year month date)))
-                        (t value))
-               :type (cond
-                       ((eq type 'date) "date")
-                       ((subtypep type 'number) "number")
-                       ((subtypep type 'boolean) "checkbox")
-                       (t "text"))))))
+       (remove
+        nil
+        (list
+         (input (:name namestring
+                 :value (cond
+                          ((eq type 'date)
+                           (multiple-value-bind
+                                 (second minute hour date month year)
+                               (decode-universal-time value)
+                             (declare (ignore second minute hour))
+                             (format nil "~a-~2,'0d-~2,'0d" year month date)))
+                          (t value))
+                 :type (cond
+                         ((eq type 'date) "date")
+                         ((subtypep type 'number) "number")
+                         ((subtypep type 'boolean) "checkbox")
+                         (t "text"))
+                 :list (when (config-suggested-values page-config)
+                         (format nil "~a-list" namestring))))
+
+         ;; suggested values
+         (when (config-suggested-values page-config)
+           (datalist (:id (format nil "~a-list" namestring))
+             (loop :for suggested :in (config-suggested-values page-config)
+                   :collect (option (:value suggested)))))))))
 
   
   (if (mobile-browser-p)
@@ -410,17 +429,44 @@
 
     (register-page
      (table-url def "edit")
-     (lambda-with-parameters (id)
+     (lambda-with-parameters (id back-url)
        (let ((table-value (funcall (table-get-function def)            
                                    (parse-integer id :junk-allowed t))))
          (with-internal-page
            (hr ())
-           (form (:method "post" :action (table-url def "save" (cons :id id)))
+           (form (:method "post" :action (table-url def "save" (cons :id id))
+                   :id (format nil "~a-form" (table-namestring def)))
+
+             ;; Warn on unload if data has not been saved
+             (span ()
+               (format
+                nil 
+                "<script>
+                let dirty = false;
+                
+                const form = document.querySelector(\"#~a\");
+                
+                form.addEventListener(\"input\", () => {
+                    dirty = true;
+                });
+                
+                form.addEventListener(\"submit\", () => {
+                    dirty = false;
+                });
+                
+                window.addEventListener(\"beforeunload\", (event) => {
+                    if (dirty) {
+                        event.preventDefault();
+                        event.returnValue = \"\";
+                    }
+                });
+                </script>" (format nil "~a-form" (table-namestring def))))
+             
              (html-table ()
                (tr ()
                  (td ()
-                   (Button (:type "submit" :name "redirect-url"
-                            :value (table-url def "list"))
+                   (button (:type "submit" :name "redirect-url"
+                            :value (if back-url back-url (table-url def "list")))
                      "back"))
                  (td ()
                    (button (:type "submit" :name "redirect-url"
@@ -488,7 +534,7 @@
   (let ((def (find-table table-name)))
     (register-page
      (table-url def "view-reference")
-     (lambda-with-parameters (id field-name)
+     (lambda-with-parameters (id field-name back-url)
        (perform-auth-check)
        (let* ((field (find field-name (table-fields def)
                            :key #'field-namestring :test #'string=))
@@ -500,5 +546,6 @@
                                           (parse-integer id :junk-allowed t)))
                     (foreign-id (funcall (field-accessor field) table-value)))
                (hunchentoot:redirect
-                (table-url foreign-def "edit" (cons :id foreign-id))
+                (table-url foreign-def "edit" (cons :id foreign-id)
+                           (cons :back-url back-url))
                 :code 303))))))))

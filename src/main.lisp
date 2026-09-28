@@ -19,7 +19,6 @@
 ;;;; This should be DISABLED when running in production
 (setf hunchentoot:*catch-errors-p* nil)
 
-
 (defvar *acceptor* nil)
 
 (fn (universal-time->date-string string) ((timestamp date))
@@ -117,7 +116,15 @@
           :metadata (:page-config (page-config :show-in-list-view-p t)))))
 
 (define-table po-details
-    ((field customer-id :references customer
+    ((field part-number :type string
+                        :initform
+            (format
+             nil "~a"
+             (open-orders.random:n-digit-number
+              (+ 4 (random 3))))
+                        :metadata (:page-config (page-config
+                                                 :show-in-list-view-p t)))
+     (field customer-id :references customer
                         :metadata (:page-config
                                    (page-config :display-as customer-name
                                                 :show-in-list-view-p t
@@ -133,25 +140,33 @@
                       :metadata (:page-config (page-config
                                                :show-in-list-view-p t
                                                :compare-function <)))
-     (field part-number :type string
-                        :initform
-            (format
-             nil "~a"
-             (open-orders.random:n-digit-number
-              (+ 4 (random 3))))
-                        :metadata (:page-config (page-config
-                                                 :show-in-list-view-p t)))
-     (field revision :type string :initform (open-orders.random:capital-letter))
+
+     (field revision :type string :initform (open-orders.random:capital-letter)
+            :metadata (:page-config (page-config
+                                     :suggested-values ("A" "B" "C" "D" "E" "F"))))
      (field price-each :type string
                        :initform (format nil "~a.~a" (random 3)
                                          (open-orders.random:n-digit-number 2)))
-     (field ship-terms :type string :initform "Freight Collect")
-     (field billing-terms :type string :initform "Net30")
+     (field ship-terms :type string :initform "Freight Collect"
+                       :metadata (:page-config
+                                  (page-config :suggested-values ("Freight Collect"
+                                                                  "Prepay And Add"
+                                                                  "Pickup"))))
+     (field billing-terms :type string :initform "Net30"
+            :metadata (:page-config (page-config
+                                     :suggested-values ("Net20" "Net30" "Net60"
+                                                                "Net90"))))
      (field material-type :type string :initform "")
-     (field job-status :type string :initform "Waiting")
+     (field job-status :type string :initform "Waiting"
+                       :metadata (:page-config (page-config
+                                                :suggested-values ("Running"
+                                                                   "In Stock"
+                                                                   "In Setup"
+                                                                   "Waiting"))))
      (field notes :type string :initform ""
                   :metadata (:page-config (page-config
-                                           :show-in-list-view-p t)))))
+                                           :show-in-list-view-p t
+                                           :suggested-values ("Wess Part"))))))
 
 (defun derive-all-pages (table-name)
   (derive-list-page-from-table table-name)
