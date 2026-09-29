@@ -118,38 +118,72 @@
 (defstruct shipment date amount)
 
 (defun generate-release-schedule-edit-ui (id def field value)
-  (td ()
-    (html-table ()
-      (tr ()
-        (td ()
-          (button (:type "submit"
-                   :name "redirect-url"
-                   :value (table-url def "set-field"
-                                     (cons :id id)
-                                     (cons :field-namestring
-                                           (field-namestring field))
-                                     (cons :value
-                                           (let ((*package* (find-package 'cl)))
-                                             (format nil "~S"
-                                                     (cons
-                                                      (make-shipment
-                                                       :amount 1000
-                                                       :date (get-universal-time))
-                                                      value))))
-                                     (cons :redirect-url
-                                           (hunchentoot:request-uri*))))
-            "Add Row")))
-      (loop
-        :for shipment :in value
-        :for i :from 0
-        :collect
-        (tr ()
-          (td () (input (:value (shipment-date shipment)
-                         :name (format nil "~a-~a-date" (field-namestring field)
-                                       i))))
-          (td () (input (:value (shipment-amount shipment)
-                         :name (format nil "~a-~a-amount" (field-namestring field)
-                                       i)))))))))
+  (let* ((mobilep (mobile-browser-p))
+         (add-row-button
+           (button
+               (:type "submit"
+                :name "redirect-url"
+                :value (table-url
+                        def "set-field"
+                        (cons :id id)
+                        (cons :field-namestring
+                              (field-namestring field))
+                        (cons :value
+                              (let ((*package* (find-package 'cl)))
+                                (format nil "~S"
+                                        (cons
+                                         (make-shipment
+                                          :amount 1000
+                                          :date (get-universal-time))
+                                         value))))
+                        (cons :redirect-url
+                              (hunchentoot:request-uri*))))
+             "Add Row")))
+    (format
+     nil "~{~a~}"
+     (list
+      (if mobilep
+          (format nil "~{~a~}"
+                  (list (tr () (td () "<i>Release Schedule</i>"))
+                        (tr () (td () add-row-button))
+                        (tr () (td () (hr ())))))
+          (tr ()
+            (td ()  "<i>Release Schedule</i>")
+            (td () add-row-button)))
+      (if mobilep ""
+          (tr ()
+            (th () "Date")
+            (th () "Amount")))
+      (format nil "~{~a~}"
+              (loop
+                :for shipment :in value
+                :for i :from 0
+                :for date
+                  = (input (:value (multiple-value-bind
+                                        (second minute hour date month year)
+                                      (decode-universal-time
+                                       (shipment-date shipment))
+                                    (declare (ignore second minute hour))
+                                    (format nil "~a-~2,'0d-~2,'0d" year month date))
+                            :name (format nil "~a-~a-date"
+                                          (field-namestring field)
+                                          i)
+                            :type "date"))
+                :for amount
+                  = (input (:value (shipment-amount shipment)
+                            :name (format nil "~a-~a-amount"
+                                          (field-namestring field)
+                                          i)))
+                :if mobilep
+                  :collect (format nil "~{~a~}"
+                                   (list (tr () (td () date))
+                                         (tr () (td () amount))
+                                         (tr () (td () (hr ())))))
+                :else
+                  :collect (tr ()
+                             (td () date)
+                             (td () amount))
+                :end))))))
 
 (define-table po-details
     ((field part-number :type string

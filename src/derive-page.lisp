@@ -441,22 +441,28 @@
                     (loop :for suggested :in (config-suggested-values page-config)
                           :collect (option (:value suggested)))))))))))
 
-    
-    (if (mobile-browser-p)
-        (list
-         (tr ()
-           (td () (or (config-display-name page-config)
-                      namestring)))
-         (tr ()
-           (td () input-form))
-         (tr ()
-           (td () (hr ()))))
 
-        ;; else
-        (tr ()
-          (td () (or (config-display-name page-config)
-                     namestring))
-          (td () input-form)))))
+    (cond
+      ((config-edit-ui-generator page-config)
+       input-form)
+
+      ((mobile-browser-p)
+       (format nil "~{~a~}"
+               (list
+                (tr ()
+                  (td () (or (config-display-name page-config)
+                             namestring)))
+                (tr ()
+                  (td () input-form))
+                (tr ()
+                  (td () (hr ()))))))
+
+      (t (tr ()
+           (td () (or (config-display-name page-config)
+                      namestring))
+           (td () input-form))))))
+
+(defparameter *foo* nil)
 
 (defun derive-edit-page-from-table (table-name)
   (let ((def (find-table table-name)))
@@ -512,18 +518,18 @@
                             :type "button")
                      "delete"))))
              (hr ())
-             (html-table ()
+             (html-table (:id "rows")
 
                ;; Create a edit row for table field
                (loop :for field :in (remove "id" (table-fields def)
-                                              :key #'field-namestring
-                                              :test #'string=)
-                       :collect
-                       (generate-form-input-from-field
-                        :id (or (parse-integer id :junk-allowed t) 0)
-                        :def def
-                        :field field
-                        :value (funcall (field-accessor field) table-value)))))
+                                            :key #'field-namestring
+                                            :test #'string=)
+                     :collect
+                     (generate-form-input-from-field
+                      :id (or (parse-integer id :junk-allowed t) 0)
+                      :def def
+                      :field field
+                      :value (funcall (field-accessor field) table-value)))))
            
            ;; delete modal for deleting a record
            (dialog (:id "confirm-delete")
@@ -531,9 +537,9 @@
                (tr ()
                  (td ()
                    (a (:href (table-url
-                               def "delete"
-                               (cons :id (funcall (table-id-accessor def)
-                                                  table-value))))
+                              def "delete"
+                              (cons :id (funcall (table-id-accessor def)
+                                                 table-value))))
                      (button () "Permanently Delete?"))))
                (tr ()
                  (td ()
