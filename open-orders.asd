@@ -4,7 +4,8 @@
   :author "Robert Burnett"
   :description "Campro Open Orders Program"
   :depends-on ("uiop" "hunchentoot"
-                      "ironclad" "cl-pass" "asdf" "url-rewrite")
+               "ironclad" "cl-pass" "asdf" "url-rewrite"
+               "cl-pdf-parser" "cl-pdf")
   :build-operation program-op
   :build-pathname "open-orders"
   :entry-point "open-orders.main:main"
@@ -18,5 +19,7 @@
                   (:file "auth")
                   (:file "derive-page")
                   (:file "random")
+                  (:file "tables")
+                  (:file "documents")
                   (:file "main")))))
 

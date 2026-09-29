@@ -164,7 +164,7 @@
 
     ;; Register Page Handler
     (register-page
-     (generate-table-url def "list")
+     (table-url def "list")
      (lambda-with-parameters (sort-by reverse search clear)
        (when clear (setf search nil))
        (let ((new-form

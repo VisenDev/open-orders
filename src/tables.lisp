@@ -1,181 +1,291 @@
 (defpackage #:open-orders.tables
-  (:use #:cl #:open-orders.sql-table)
-  (:import-from #:defclass-std
-                #:defclass/std)
-  (:export #:user
-           #:person
-           #:customer
-           #:part
-           #:supplier
-           #:material
-           #:open-order
-           #:name
-           #:hash
-           #:first-name
-           #:last-name
-           #:email
-           #:phone
-           #:notes
-           #:id
-           #:purchase-order
-           #:line-item
-           #:ship-terms
-           #:billing-terms
-           #:ship-notes
-           #:primary-contact
-           #:part-number
-           #:description
-           #:revision
-           #:suppliers
-           #:supplies
-           #:categories
-           #:with-database
-           #:database-disconnect
-           #:database-connect
-           #:authentication-token
-           #:authentication-token-timestamp
-           #:contactable-mixin
-           #:contact-first-name
-           #:contact-last-name
-           #:contact-email
-           #:contact-phone
-           #:connection
-           #:db
-           #:user-create-new
-           #:scheduled-shipment
-           #:make-scheduled-shipment
-           #:scheduled-shipment-p
-           #:copy-scheduled-shipment
-           #:scheduled-shipment-date
-           #:scheduled-shipment-quota
-           #:scheduled-shipment-amount
-           #:scheduled-shipment-completed-p
-           #:open-order-deadline
-           #:open-orders-table
-           #:select-slot))
+  (:use #:cl
+        #:open-orders.fn
+        #:open-orders.html-generator
+        #:open-orders.database
+        #:open-orders.derive-page
+        #:open-orders.templates
+        #:open-orders.auth)
+  (:export
+   #:customer
+   #:make-customer
+   #:customer-p
+   #:copy-customer
+   #:customer-id
+   #:customer-name
+   #:customer-primary-contact-name
+   #:customer-address
+   #:customer-phone
+   #:customer-email
+   #:inventory
+   #:make-inventory
+   #:inventory-p
+   #:copy-inventory
+   #:inventory-id
+   #:inventory-part-number
+   #:inventory-note
+   #:inventory-location
+   #:inventory-last-updated
+   #:purchase-order
+   #:make-purchase-order
+   #:purchase-order-p
+   #:copy-purchase-order
+   #:purchase-order-id
+   #:purchase-order-date-placed
+   #:purchase-order-supplier
+   #:purchase-order-description
+   #:po-details
+   #:make-po-details
+   #:po-details-p
+   #:copy-po-details
+   #:po-details-id
+   #:po-details-part-number
+   #:po-details-customer-id
+   #:po-details-purchase-order
+   #:po-details-line-item
+   #:po-details-revision
+   #:po-details-price-each
+   #:po-details-ship-terms
+   #:po-details-billing-terms
+   #:po-details-material-type
+   #:po-details-job-status
+   #:po-details-notes
+   #:po-details-release-schedule
+   #:employee
+   #:make-employee
+   #:employee-p
+   #:copy-employee
+   #:employee-id
+   #:employee-name
+   #:employee-email
+   #:employee-phone
+   #:employee-date-hired
+   #:employee-birthday
+   #:universal-time->date-string
+   #:get-customer))
 (in-package #:open-orders.tables)
 
-(defclass autodefined-table () ())
-(defclass open-orders-table ()
-  ((id :accessor id
-       :type integer
-       :primary-key t
-       :autoincrement t
-       :initform nil
-       :initarg :id)
-   (notes :accessor notes
-          :type list
-          :initform nil
-          :initarg :notes))
-  (:metaclass sql-table))
+(fn (universal-time->date-string string) ((timestamp date))
+    (multiple-value-bind (second minute hour
+                          date month year day)
+        (decode-universal-time timestamp)
+      (declare (ignore second minute hour day))
+      (format nil "~a ~a, ~a"
+              (nth month
+                   '("January"
+                     "February"
+                     "March"
+                     "April"
+                     "May"
+                     "June"
+                     "July"
+                     "August"
+                     "September"
+                     "October"
+                     "November"
+                     "December"))
+              date year)))
 
-(defclass/std user (autodefined-table)
-  ((name :type string :primary-key t)
-   (hash authentication-token :type string)
-   (authentication-token-timestamp :type integer))
-  (:metaclass sql-table))
+(define-table customer
+    ((field name
+            :type string :initform (open-orders.random:full-name)
+            :metadata (:page-config
+                       (page-config
+                        :show-in-list-view-p t)))
+     (field primary-contact-name
+            :type string :initform (open-orders.random:full-name)
+            :metadata (:page-config (page-config
+                                     :show-in-list-view-p t)))
+     (field address
+            :type string :initform (format nil "~a ~a"
+                                           (+ 100 (random 1000))
+                                           (open-orders.random:street)))
+     (field phone
+            :type string :initform (format
+                                    nil "~a"
+                                    (open-orders.random:n-digit-number 10))
+            :metadata (:page-config (page-config
+                                     :show-in-list-view-p t)))
+     (field email
+            :type string :initform (format
+                                    nil "~a@~a.com"
+                                    (open-orders.random::first-name)
+                                    (open-orders.random::last-name))
+            :metadata (:page-config (page-config :show-in-list-view-p t)))))
 
+(define-table inventory
+  ((field part-number
+          :type string :initform (format nil "~a"
+                                         (open-orders.random:n-digit-number 8))
+          :metadata (:page-config
+                     (page-config :show-in-list-view-p t)))
+   (field (location note)
+          :type string :initform ""
+          :metadata (:page-config
+                     (page-config :show-in-list-view-p t)))
+   (field last-updated
+          :type date :initform (get-universal-time)
+          :metadata (:page-config
+                     (page-config :show-in-list-view-p t
+                                  :display-as universal-time->date-string
+                                  :compare-function <)))))
 
+(define-table employee
+  ((field name
+          :type string :initform (open-orders.random:full-name)
+          :metadata (:page-config (page-config :show-in-list-view-p t)))
+    (field (phone email)
+          :type string :initform ""
+          :metadata (:page-config (page-config :show-in-list-view-p t)))
+   (field (birthday date-hired)
+          :type date :initform (get-universal-time)
+          :metadata (:page-config (page-config
+                                   :show-in-list-view-p t
+                                   :compare-function <
+                                   :display-as universal-time->date-string)))))
 
+(define-table purchase-order
+  ((field (date-placed)
+          :type date :initform (- (get-universal-time)
+                                  (random 100000))
+          :metadata (:page-config (page-config
+                                   :show-in-list-view-p t
+                                   :display-as universal-time->date-string
+                                   :compare-function <)))
+   (field supplier
+          :type string :initform (open-orders.random:full-name)
+          :metadata (:page-config (page-config :show-in-list-view-p t)))
+   (field description
+          :type string :initform ""
+          :metadata (:page-config (page-config :show-in-list-view-p t)))))
 
+(defstruct shipment date amount)
 
-;; (defclass/std person (open-orders-table)
-;;   ((first-name last-name email phone :type string))
-;;   (:metaclass sql-table))
+(defun generate-release-schedule-edit-ui (id def field value)
+  (let* ((mobilep (mobile-browser-p))
+         (add-row-button
+           (button
+               (:type "submit"
+                :name "redirect-url"
+                :value (table-url
+                        def "set-field"
+                        (cons :id id)
+                        (cons :field-namestring
+                              (field-namestring field))
+                        (cons :value
+                              (let ((*package* (find-package 'cl)))
+                                (format nil "~S"
+                                        (cons
+                                         (make-shipment
+                                          :amount 1000
+                                          :date (get-universal-time))
+                                         value))))
+                        (cons :redirect-url
+                              (hunchentoot:request-uri*))))
+             "Add Row")))
+    (format
+     nil "~{~a~}"
+     (list
+      (if mobilep
+          (format nil "~{~a~}"
+                  (list (tr () (td () "<i>Release Schedule</i>"))
+                        (tr () (td () add-row-button))
+                        (tr () (td () (hr ())))))
+          (tr ()
+            (td ()  "<i>Release Schedule</i>")
+            (td () add-row-button)))
+      (if mobilep ""
+          (tr ()
+            (th () "Date")
+            (th () "Amount")))
+      (format nil "~{~a~}"
+              (loop
+                :for shipment :in value
+                :for i :from 0
+                :for date
+                  = (input (:value (multiple-value-bind
+                                        (second minute hour date month year)
+                                      (decode-universal-time
+                                       (shipment-date shipment))
+                                    (declare (ignore second minute hour))
+                                    (format nil "~a-~2,'0d-~2,'0d" year month date))
+                            :name (format nil "~a-~a-date"
+                                          (field-namestring field)
+                                          i)
+                            :type "date"))
+                :for amount
+                  = (input (:value (shipment-amount shipment)
+                            :name (format nil "~a-~a-amount"
+                                          (field-namestring field)
+                                          i)))
+                :if mobilep
+                  :collect (format nil "~{~a~}"
+                                   (list (tr () (td () date))
+                                         (tr () (td () amount))
+                                         (tr () (td () (hr ())))))
+                :else
+                  :collect (tr ()
+                             (td () date)
+                             (td () amount))
+                :end))))))
 
-(defclass/std contactable-mixin (autodefined-table)
-  ((contact-first-name contact-last-name contact-email contact-phone
-                       :type string :std ""))
-  (:metaclass sql-table))
+(define-table po-details
+    ((field part-number :type string
+                        :initform
+            (format
+             nil "~a"
+             (open-orders.random:n-digit-number
+              (+ 4 (random 3))))
+                        :metadata (:page-config (page-config
+                                                 :show-in-list-view-p t)))
+     (field customer-id :references customer
+                        :metadata (:page-config
+                                   (page-config :display-as customer-name
+                                                :show-in-list-view-p t
+                                                :display-name "customer")))
+     (field purchase-order :type string
+                           :initform (format
+                                      nil "~a"
+                                      (open-orders.random:n-digit-number
+                                       (+ 4 (random 3))))
+                           :metadata (:page-config
+                                      (page-config :show-in-list-view-p t)))
+     (field line-item :type integer :initform (random 5)
+                      :metadata (:page-config (page-config
+                                               :show-in-list-view-p t
+                                               :compare-function <)))
 
-(defclass/std customer (open-orders-table contactable-mixin autodefined-table)
-  ((name :type string))
-  (:metaclass sql-table))
-
-(defstruct scheduled-shipment
-  (date (get-universal-time) :type integer)
-  (quota 0 :type integer)
-  (amount 0 :type integer))
-
-(declaim (ftype (function (scheduled-shipment) boolean)
-                scheduled-shipment-completed-p))
-(defun scheduled-shipment-completed-p (shipment)
-  (>= (scheduled-shipment-amount shipment)
-      (scheduled-shipment-quota shipment)))
-
-(defclass/std part (open-orders-table autodefined-table)
-  ((part-number :type string)
-   (description :type string)
-   (revision :type string)
-   (inventory-count :type integer)
-   (inventory-location :type integer))
-  (:metaclass sql-table))
-
-(defclass/std suppliers (open-orders-table contactable-mixin autodefined-table)
-  ((name :type string)
-   (supplies :type list))
-  (:metaclass sql-table))
-
-(defclass/std material (open-orders-table autodefined-table)
-  ((name :type string)
-   (categories :type list)
-   (suppliers :type list))
-  (:metaclass sql-table))
-
-(defclass/std open-order (open-orders-table autodefined-table)
-  ((customer :type integer :references (customer id))
-   (purchase-order :type string)
-   (line-item :type integer :std 0)
-   (part :type integer :references (part id))
-   (ship-terms :type string :std "PrePay and Add")
-   (billing-terms :type string :std "Net 30")
-   (ship-notes :type string)
-   (material :type integer :references (material id))
-   (run-status :type string)
-   (scheduled-shipments :type list :doc "list of scheduled-shipment"))
-  (:metaclass sql-table))
-
-(declaim (ftype (function (open-order) integer) open-order-deadline))
-(defun open-order-deadline (open-order)
-  (let ((filtered (remove-if #'scheduled-shipment-completed-p
-                             (scheduled-shipments open-order))))
-    (loop :for shipment :in filtered
-          :minimize (scheduled-shipment-date shipment))))
-
-
-(declaim (ftype (function (symbol (or string integer) symbol) t)
-                select-slot))
-(defun select-slot (classname id slotname)
-  "Looks up the object in the database and accesses slotname, returns nil otherwise."
-  (let* ((parsed-id (if (stringp id) (parse-integer id)
-                        id))
-         (obj (select classname 'id parsed-id)))
-    (when obj
-      (when (slot-boundp obj slotname)
-        (slot-value obj slotname)))))
-
-;;; Utils
-(defun database-connect ()
-  (unless *database-handle*
-    (let ((db (dbi:connect :sqlite3 :database-name "open-orders.sqlite3")))
-      (setf *database-handle* db)
-      (dolist (class
-               (closer-mop:class-direct-subclasses (find-class 'autodefined-table)))
-        (create (class-name class) :if-not-exists t)))))
-
-(defun database-disconnect ()
-  (when *database-handle*
-    (dbi:disconnect *database-handle*)
-    (setf *database-handle* nil)))
-
-(defun %nuke-tables ()
-  (database-connect)
-  (dolist (class
-           (closer-mop:class-direct-subclasses (find-class 'autodefined-table)))
-    (drop (class-name class) :if-exists t)))
-
-(defun user-create-new (name password)
-  (database-connect)
-  (insert (make-instance 'user
-                         :name name
-                         :hash (cl-pass:hash password))))
+     (field revision :type string :initform (open-orders.random:capital-letter)
+                     :metadata (:page-config (page-config
+                                              :suggested-values ("A" "B" "C" "D" "E" "F"))))
+     (field price-each :type string
+                       :initform (format nil "~a.~a" (random 3)
+                                         (open-orders.random:n-digit-number 2)))
+     (field ship-terms :type string :initform "Freight Collect"
+                       :metadata (:page-config
+                                  (page-config :suggested-values ("Freight Collect"
+                                                                  "Prepay And Add"
+                                                                  "Pickup"))))
+     (field billing-terms :type string :initform "Net30"
+                          :metadata (:page-config (page-config
+                                                   :suggested-values ("Net20" "Net30" "Net60"
+                                                                              "Net90"))))
+     (field material-type :type string :initform "")
+     (field job-status :type string :initform "Waiting"
+                       :metadata (:page-config (page-config
+                                                :suggested-values ("Running"
+                                                                   "In Stock"
+                                                                   "In Setup"
+                                                                   "Waiting"))))
+     (field notes :type string :initform ""
+                  :metadata (:page-config (page-config
+                                           :show-in-list-view-p t
+                                           :suggested-values ("Wess Part"))))
+     (field
+      release-schedule
+      :type list
+      :metadata
+      (:page-config
+       (page-config
+        :edit-ui-generator
+        generate-release-schedule-edit-ui)))))
