@@ -40,100 +40,53 @@
            #:xmp
            #:doctype
            #:br
-           #:select))
+           #:select
+           #:str))
 (in-package #:open-orders.html-generator)
 
-(eval-when (:compile-toplevel :load-toplevel)
-  (defun concatenate-string-p (form)
-    (and (listp form)
-         (eq 'concatenate (first form))
-         (equalp (quote (quote string)) (second form))))
+(declaim (optimize (speed 3)))
 
-  (defun deduplicate-concatenate (forms)
-    (loop :for form :in forms
-          :appending
-          (if (concatenate-string-p form)
-              (cddr form)
-              (list form))))
+(defvar *output-stream* nil)
+(defun format-attributes-plist (attributes-plist)
+  (loop :for (raw-name value) :on attributes-plist :by #'cddr
+        :for name = (if (and (not (null raw-name)) (symbolp raw-name))
+                        (string-downcase (symbol-name raw-name))
+                        raw-name)
+        :when (and name value)
+          :do (format *output-stream* " ~a=\"~a\"" name value)))
 
-  (defun compress-adjacent-strings (forms)
-    (let ((result nil))
-      (dolist (form forms)
-        (if (and (stringp (first result)) (stringp form))
-            (setf (first result)
-                  (concatenate 'string (first result) form))
-            (push form result)))
-      (nreverse result)))
-  (defun format-attributes-plist (attributes-plist)
-    (loop :for (name value) :on attributes-plist :by #'cddr
-          :collect (if (and (or (stringp name) (keywordp name))
-                            (or (stringp value) (keywordp value)))
+(defun str (&rest things)
+  "Converts things to a string, folding nested lists"
+  (labels ((emit (thing)
+             (cond
+               ((null thing))
+               ((listp thing)
+                (mapc #'emit thing))
+               (t
+                (format *output-stream* "~a" thing)))))
+    (mapc #'emit things)))
 
-                       ;; create the attributes string at compile time if possible
-                       (string-downcase
-                        (format nil " ~a=\"~a\"" name value))
+(defmacro with-output-to-html (&body body)
+  `(with-output-to-string (*output-stream*)
+    ,@body))
 
-                       ;; otherwise just create the code to do so at runtime
-                       `(string-downcase
-                         (format nil " ~a=\"~a\"" ,name ,value))))))
+(defmacro tag (html-name attributes-plist self-closing-p &rest contents)
+  (cond (self-closing-p
+         (assert (null contents))
+         `(str "<" ,html-name
+               (format-attributes-plist (list ,@attributes-plist)) "/>"))
 
-(defmacro doctype (attributes-plist &body contents &environment env)
-  "Special doctype tag"
-  (declare (ignore attributes-plist))
-  `(concatenate 'string "<!DOCTYPE html>"
-                ,@(deduplicate-concatenate
-                   (mapcar (lambda (form) (macroexpand form env)) contents))))
-
-
-(defmacro self-closing-tag (html-name attributes-plist)
-  (compress-adjacent-strings
-   `(concatenate
-     'string
-     ;; Tag Open
-     ,(format nil "<~a" html-name)
-     ,@(format-attributes-plist attributes-plist)
-     ">")))
-
-(defmacro tag (html-name attributes-plist &rest contents &environment env)
-  (compress-adjacent-strings
-   `(concatenate
-     'string
-
-     ;; Tag Open
-     ,(format nil "<~a" html-name)
-     ,@(format-attributes-plist attributes-plist)
-     ">"
-
-     ;; Tag body, with nest (concatenate 'string) forms collapsed
-     ,@(deduplicate-concatenate
-        (mapcar (lambda (form)
-
-                  ;; macroexpand body to so that we can optimize
-                  (let ((expanded (macroexpand form env)))
-
-                    ;; if the form is a string, we can just return it as is
-                    (cond ((or (stringp expanded) (concatenate-string-p expanded))
-                           expanded)
-
-                          ;; Otherwise the form needs to be formatted at runtime
-                          (t (let ((result (gensym)))
-                               `(let ((,result ,expanded))
-                                  (if (listp ,result)
-                                      (format nil "~{~a~}" ,result)
-                                      (format nil "~a" ,result))))))))
-                contents))
-
-     ;; Tag Close
-     ,(format nil "</~a>" html-name))))
+        (t
+         `(str "<" ,html-name
+               (format-attributes-plist (list ,@attributes-plist)) ">"
+               ,@contents
+               "</" ,html-name ">"))))
 
 (defmacro deftag (name &key self-closing-p html-name)
-  (unless html-name
-    (setf html-name (string-downcase (symbol-name name))))
-  (if self-closing-p
-      `(defmacro ,name (attributes-plist)
-         `(self-closing-tag ,,html-name ,attributes-plist))
-      `(defmacro ,name (attributes-plist &body body)
-         `(tag ,,html-name ,attributes-plist ,@body))))
+  `(defmacro ,name (attributes-plist &body body)
+     (assert (listp attributes-plist))
+     `(tag ,,(or html-name (string-downcase (symbol-name name)))
+           ,attributes-plist ,,self-closing-p ,@body)))
 
 (defmacro deftags (&body forms)
   `(progn
@@ -187,20 +140,20 @@
 
 ;; test
 #+nil
-(html ()
-  (head ()
-    (title () "Testy Test"))
-  (body ()
-    (h1 (:class "header" :id "primary header"))
-    (h2 () (if (boundp 'foo)
-               (h3 () (a () "hello there")) "no foo"))
-    (p () "hi")))
-
-
-
-
-
-
+(not
+ (time
+  (dotimes (j 100)
+    (with-output-to-html
+      (html ()
+        (head ()
+          (title () "Testy Test"))
+        (body ()
+          (h1 (:class "header" :id "primary header")
+            (list (list 1 2 3) 4)
+            (list 1 2 3 4))
+          (h2 () (if (boundp 'foo)
+                     (h3 () (a () "hello there")) "no foo"))
+          (p () "hi")))))))
 
 
 
