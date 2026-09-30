@@ -447,15 +447,14 @@
        input-form)
 
       ((mobile-browser-p)
-       (format nil "~{~a~}"
-               (list
-                (tr ()
-                  (td () (or (config-display-name page-config)
-                             namestring)))
-                (tr ()
-                  (td () input-form))
-                (tr ()
-                  (td () (hr ()))))))
+       (list
+        (tr ()
+          (td () (or (config-display-name page-config)
+                     namestring)))
+        (tr ()
+          (td () input-form))
+        (tr ()
+          (td () (hr ())))))
 
       (t (tr ()
            (td () (or (config-display-name page-config)
@@ -525,11 +524,12 @@
                                             :key #'field-namestring
                                             :test #'string=)
                      :collect
-                     (generate-form-input-from-field
-                      :id (or (parse-integer id :junk-allowed t) 0)
-                      :def def
-                      :field field
-                      :value (funcall (field-accessor field) table-value)))))
+                     (span (:id (format nil "~a-edit" (field-namestring field)))
+                       (generate-form-input-from-field
+                        :id (or (parse-integer id :junk-allowed t) 0)
+                        :def def
+                        :field field
+                        :value (funcall (field-accessor field) table-value))))))
            
            ;; delete modal for deleting a record
            (dialog (:id "confirm-delete")
