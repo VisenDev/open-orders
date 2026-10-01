@@ -5,130 +5,102 @@
    #:generate-order-confirmation))
 (in-package #:open-orders.documents)
 
-(defparameter *bounds* pdf:*letter-portrait-page-bounds*)
-(defparameter *layout-state* nil)
+(in-package :cl-user)
 
-(defstruct (layout-state (:conc-name ls-))
-  (margin 10 :type integer)
-  (x 0 :type integer)
-  (y 0 :type integer)
-  (w (elt *bounds* 2) :type integer)
-  (h (elt *bounds* 3) :type integer)
-  ;; (font-size 16 :type integer)
-  (font (pdf:get-font "Times-Roman")))
 
-(defmacro with-pdf-layout (path &body body)
-  `(let ((*layout-state* (make-layout-state)))
-     (pdf:with-document ()
-       (pdf:with-page (:bounds *bounds*)
-         ,@body)
-       (pdf:write-document ,path))))
+;; Example from the cl-typesetting repo
+(defun test-table (&optional (file "test-table.pdf")
+                   &aux content table (margins '(72 72 72 50)))
+  (let* ((tt:*default-font* (pdf:get-font "Helvetica"))
+         (tt:*default-font-size* 10)
+         (row-height nil))
+    (tt:with-document ()
+      (setq content (tt:compile-text (:font tt:*default-font*
+                                       :font-size tt:*default-font-size*)
+                      (tt:paragraph () "Test table spans and borders")
+                      (tt:table (:col-widths '(20 40 60 80 120) :background-color :yellow :border 1)
+                        (tt:header-row ()
+                          (tt:cell (:col-span 5)
+                            (tt:paragraph (:h-align :center :font-size 12)
+                              "Table with cells spanning more then one row or column")))
+                        (tt:row (:background-color :green)
+                          (tt:cell (:row-span 2 :background-color :blue)
+                            "1,1 2,1  row-span 2")
+                          (tt:cell () "1,2")
+                          (tt:cell (:col-span 2 :row-span 3 :background-color :red)
+                            "1,3 1,4 - 3,3 3,4  col-span 2 row-span 3")
+                          (tt:cell () "1,5"))
+                        (tt::row ()
+                          (tt:cell () "2,2")
+                          (tt:cell (:row-span 2 :background-color :blue) "2,5 3,5  row-span 2"))
+                        (tt:row (:background-color :green)
+                          (tt:cell (:col-span 2) "3,1 3,2  col-span 2"))
+                        (tt::row ()
+                          (tt:cell () "4,1")
+                          (tt:cell () "4,2")
+                          (tt:cell () "4,3")
+                          (tt:cell () "4,4")
+                          (tt:cell () "4,5")))
 
-(defun layout-text (text &key (font-size 16) (advance-line-p t))
-  (pdf:in-text-mode
-    (pdf:set-rgb-fill 0 0 0)
-    (pdf:set-font (ls-font *layout-state*) font-size)
-    (let ((dx (ls-x *layout-state*))
-          (dy font-size;; (- (ls-y *layout-state*) font-size)
-              ))
-      )
-    (pdf:move-text (ls-x *layout-state*) (- (ls-y *layout-state*) font-size))
-    (pdf:draw-text text))
-  (cond (advance-line-p
-         (setf (ls-x *layout-state*) (ls-margin *layout-state*))
-         (incf (ls-y *layout-state*) font-size))
-        (t
-         (incf (ls-x *layout-state*)
-               (loop :for ch :across text
-                     :sum (pdf:get-char-width ch (ls-font *layout-state*)
-                                              font-size))))))
+                      (setq table
+                            (tt:table (:col-widths '(50 40 60 80 120) :border 0)
+                              (tt:header-row ()
+                                (tt:cell (:col-span 0 :border 1)
+                                  (tt:paragraph (:h-align :centered :font-size 12)
+                                    "Cells with borders. Header row cell  col-span 0")))
+                              (tt:row (:background-color :green)
+                                (tt:cell (:row-span 2 :background-color :blue)
+                                  "1,1 2,1  row-span 2")
+                                (tt:cell () "1,2")
+                                (tt:cell (:col-span 2 :row-span 3 :background-color :red)
+                                  "1,3 1,4 - 3,3 3,4  col-span 2 row-span 3")
+                                (tt:cell () "1,5"))
+                              (tt:row ()
+                                (tt:cell (:border 2) "2,2")
+                                (tt:cell (:row-span 2 :background-color :blue) "2,5 3,5  row-span 2"))
+                              (tt:row (:background-color :green)
+                                (tt:cell (:col-span 2 :border 2) "3,1 3,2  col-span 2"))
+                              (tt:row ()
+                                (tt:cell (:border #(3 0 0 0)) "4,1 left-border 3")
+                                (tt:cell (:border #(0 3 0 0)) "4,2 top-border 3")
+                                (tt:cell (:border #(2 2 2 2)) "4,3 border #(2 2 2 2)")
+                                (tt:cell (:border #(0 0 3 0)) "4,4 right-border 3")
+                                (tt:cell (:border #(0 0 0 3)) "4,5 bottom-border 3"))
+                              (tt:footer-row ()
+                                (tt:cell (:col-span 5 :border '(0 1/4))
+                                  (tt:paragraph (:h-align :justified :font-size 12)
+                                    "footer" :hfill "cell" :hfill "spanning" :hfill "several" :hfill "columns")))))
+   
+                      (tt:table (:col-widths '(60 60 60 60 60) :border 1)
+                        (tt:row (:height row-height)
+                          (tt:cell (:row-span 2) "1,1 2,1  row-span 2")
+                          (tt:cell () "1,2")
+                          (tt:cell () "1,3")
+                          (tt:cell (:col-span 0) "1,4 1,5  col-span 0"))
+                        (tt::row (:height row-height)
+                          (tt:cell (:row-span 3) "2,2 3,2 4,2  row-span 3")
+                          (tt:cell () "2,3")
+                          (tt:cell (:col-span 0 :row-span 0) "2,4 - 4,5  col-span 0 row-span 0"))
+                        (tt:row (:height row-height)
+                          (tt:cell (:row-span 0) "3,1 4,1  row-span 0")
+                          (tt:cell () "3,3"))
+                        (tt:row (:height row-height)
+                          (tt:cell () "4,3")))
 
-(defun layout-hr ()
-  (pdf:set-rgb-stroke 0 0 0)
-  (pdf:set-rgb-fill 0 0 0)
-  (pdf:set-line-width 0.2)
-  (pdf:move-to (ls-margin *layout-state*) (ls-y *layout-state*))
-  (pdf:line-to (- (ls-w *layout-state*) (* 2 (ls-margin *layout-state*)))
-               (ls-y *layout-state*))
-  (pdf:close-fill-and-stroke)
-  (incf (ls-y *layout-state*) 10))
-
-(defun generate-order-confirmation (po-details &key
-                                                 (path
-                                                  "/tmp/confirmation.pdf"
-                                                  ;; (format nil "/tmp/~a.pdf"
-                                                  ;;  (open-orders.random:n-digit-number 10))
-                                                  ))
-
-  (with-pdf-layout path
-    (layout-text "Order Confirmation" :font-size 32)
-    (layout-text (universal-time->date-string (get-universal-time)))
-    (layout-hr)
-
-    )
-  
-  ;; (let ((w (elt pdf:*letter-portrait-page-bounds* 2))
-  ;;       (h (elt pdf:*letter-portrait-page-bounds* 3))
-  ;;       (h1 32)
-  ;;       (h2 20)
-  ;;       (p 16)
-  ;;       (pad 5))
-  ;;   (pdf:with-document ()
-  ;;     (pdf:with-page (:bounds pdf:*letter-portrait-page-bounds*)
-  ;;       (pdf:with-outline-level ("Order Confirmation" (pdf:register-page-reference))
-  ;;         (let ((font (pdf:get-font "Times-Roman")))
-
-  ;;           ;; Header
-  ;;           (pdf:in-text-mode
-  ;;             (pdf:set-font font h1)
-  ;;             (pdf:move-text pad (- h h1))
-  ;;             (pdf:draw-text "Order Confirmation")
-
-  ;;             (pdf:set-font font h2)
-  ;;             (pdf:move-text (* w 2/3) 0)
-  ;;             (pdf:draw-text (universal-time->date-string
-  ;;                             (get-universal-time))))
-
-  ;;           ;; line
-  ;;           (pdf:set-rgb-stroke 0 0 0)
-  ;;   	    (pdf:set-rgb-fill 0.4 0.4 0.9)
-  ;;   	    (pdf:set-line-width 0.2)
-  ;;           (pdf:move-to 0 (- h h1 pad pad))
-  ;;           (pdf:line-to w (- h h1 pad pad))
-  ;;           (pdf:close-fill-and-stroke)
-
-  ;;           ;; Order
-  ;;           (pdf:in-text-mode
-  ;;             (pdf:set-font font p)
-  ;;             (pdf:set-rgb-fill 0 0 0)
-  ;;             (pdf:move-text pad (- h h1 p 25))
-
-  ;;             ;; Customer
-  ;;             (pdf:draw-text "Sold To: ")
-  ;;             (pdf:move-text 100 0)
-  ;;             (pdf:draw-text (customer-name
-  ;;                             (or 
-  ;;                              (get-customer
-  ;;                               ;; TODO remove the randomness here later
-  ;;                               (or (po-details-customer-id po-details)
-  ;;                                   (random 10)))
-  ;;                              (make-customer))))
-
-  ;;             ;; Po Number
-  ;;             (pdf:move-text -100 (- (+ p pad)))
-  ;;             (pdf:draw-text "P.O. Number:")
-  ;;             (pdf:move-text 100 0)
-  ;;             (pdf:draw-text (po-details-purchase-order po-details))
-
-  ;;             ;; Bill Terms
-  ;;             (pdf:move-text -100 (- (+ p pad)))
-  ;;             (pdf:draw-text "Billing Terms:")
-  ;;             (pdf:move-text 100 0)
-  ;;             (pdf:draw-text (po-details-billing-terms po-details))
-  ;;             )
-            
-  ;;           )))
-  ;;     (pdf:write-document path)))
-  path)
-
-;; (open-orders.documents::generate-order-confirmation (make-po-details) )
+                      (tt:table (:col-widths '(60 60 60) :border 1)
+                        (tt:row (:height row-height)
+                          (tt:cell (:row-span 2) "1,1 2,1  row-span 2")
+                          (tt:cell () "1,2")
+                          (tt:cell () "1,3"))
+                        (tt::row (:height row-height)
+                          (tt:cell (:row-span 3) "2,2 3,2 4,2  row-span 3")
+                          (tt:cell () "2,3"))
+                        (tt:row (:height row-height)
+                          (tt:cell (:row-span 2) "3,1 4,1  row-span 2")
+                          (tt:cell () "3,3"))
+                        (tt:row (:height row-height)
+                          (tt:cell () "4,3")))
+                      ))
+      (tt::draw-pages content :margins margins :break :after)
+      (pdf:write-document file)))
+  table)

@@ -5,7 +5,7 @@
   :description "Campro Open Orders Program"
   :depends-on ("uiop" "hunchentoot"
                "ironclad" "cl-pass" "asdf" "url-rewrite"
-               "cl-pdf-parser" "cl-pdf")
+               "cl-pdf-parser" "cl-pdf" "cl-typesetting")
   :build-operation program-op
   :build-pathname "open-orders"
   :entry-point "open-orders.main:main"
