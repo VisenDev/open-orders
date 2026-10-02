@@ -17,6 +17,7 @@
                   (:file "html-generator")
                   (:file "templates")
                   (:file "auth")
+                  (:file "css")
                   (:file "derive-page")
                   (:file "random")
                   (:file "tables")

@@ -743,3 +743,13 @@ aside h1, aside h2, aside h3, aside h4 {
     content: counter(sidenote-counter) " ";
     top: -0.5rem;
 }
+
+
+/**** ADJUSTMENTS MADE FOR OPEN ORDERS ****/
+form[id$="-form"] {
+    display: block;
+}
+
+form[id$="-form"] button {
+    width: auto;
+}

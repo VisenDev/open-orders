@@ -66,6 +66,7 @@
       (nreverse result)))
   (defun format-attributes-plist (attributes-plist)
     (loop :for (name value) :on attributes-plist :by #'cddr
+          :for valuesym = (gensym)
           :collect (if (and (or (stringp name) (keywordp name))
                             (or (stringp value) (keywordp value)))
 
@@ -75,10 +76,11 @@
                                value)
 
                        ;; otherwise just create the code to do so at runtime
-                       `(string-downcase
-                         (format nil " ~a=\"~a\"" (string-downcase
-                                                   (symbol-name ,name))
-                                 ,value))))))
+                       `(let ((,valuesym ,value))
+                          (when ,valuesym
+                            (format nil " ~a=\"~a\"" (string-downcase
+                                                      (symbol-name ,name))
+                                    ,valuesym)))))))
 
 (defmacro doctype (attributes-plist &body contents &environment env)
   "Special doctype tag"

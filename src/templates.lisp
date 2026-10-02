@@ -11,11 +11,12 @@
    #:tab-name
    #:tab-url
    #:insert-toplevel-tabs
-   #:mobile-browser-p))
+   #:mobile-browser-p
+   #:*css-style-cookie*))
 (in-package #:open-orders.templates)
 
 (defstruct tab name url)
-(defparameter *toplevel-tabs* nil)
+(defvar *toplevel-tabs* nil)
 
 (defun mobile-browser-p ()
   (let ((user-agent (hunchentoot:header-in* :user-agent)))
@@ -25,11 +26,10 @@
              (search "iPad" user-agent)
              (search "Mobile" user-agent)))))
 
-;; CSS loader handler
-(hunchentoot:define-easy-handler (css :uri "/orders.css") ()
-  (setf (hunchentoot:content-type*) "text/css")
-  (uiop:read-file-string (asdf:system-relative-pathname "open-orders"
-                                                        "src/orders.css")))
+(defparameter *css-style-cookie* "CSS_STYLE")
+(defun get-css-href ()
+  (format nil "/css?style=~a"
+          (or (hunchentoot:cookie-in *css-style-cookie*) "")))
 
 (defmacro with-page (&body body)
   `(progn
@@ -41,9 +41,13 @@
            (meta (:charset "utf-8"))
            (meta (:name "viewport"
                   :content "width=device-width, initial-scale=1"))
-           (link (:href "/orders.css" :rel "stylesheet")))
+           (link (:href ;; "/orders.css"
+                  (get-css-href)
+                  :rel "stylesheet")))
          (body ()
-           ,@body)))))
+           ,@body
+           )))))
+
 
 
 (defun insert-toplevel-tabs ()
@@ -54,7 +58,7 @@
                     (td ()
                       (a (:href (tab-url tab))
                         (tab-name tab)))))
-                  *toplevel-tabs*)
+                *toplevel-tabs*)
         (tr ()
           (mapcar (lambda (tab)
                     (td ()

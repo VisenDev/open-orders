@@ -239,7 +239,8 @@
                          (if (or (null display-value)
                                  (and (stringp display-value)
                                       (string-equal display-value "")))
-                             "<i>&ltempty&gt</i>"
+                             ""
+                             ;; "<i>&ltempty&gt</i>"
                              display-value)
                          )))))))))))))
 
