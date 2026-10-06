@@ -21,7 +21,8 @@
    #:derive-edit-page-from-table
    #:derive-delete-page-from-table
    #:derive-view-reference-page-from-table
-   #:derive-set-field-page-from-table))
+   #:derive-set-field-page-from-table
+   #:http-form-datestring->universal-time))
 (in-package #:open-orders.derive-page)
 
 (defparameter *max-columns-on-mobile* 2)
@@ -45,11 +46,25 @@
   (display-name nil :type (or string null))
   (compare-function nil #|:type (function (t t) boolean)|#)
   (suggested-values nil :type list)
-  (edit-ui-generator nil #|:type (function (field-value) t)|#))
+  (edit-ui-generator nil #|:type (function (field-value) t)|#)
+  
+  ;; this should be a function that takes the parameters list, the table value,
+  ;; and field definition, and modifies the table value
+  (http-parameter-decoding-function nil #|:type (function (list t field) t) |#))
 
 (fn (geta t) (item (alist list) &key (test #'equal))
   "Alist equivalent to getf"
   (cdr (assoc item alist :test test)))
+
+(defun http-form-datestring->universal-time (form-data-string)
+  (let ((year (subseq form-data-string 0 4))
+        (month (subseq form-data-string 5 7))
+        (day (subseq form-data-string 8 10)))
+    (encode-universal-time
+     0 0 0
+     (parse-integer day)
+     (parse-integer month)
+     (parse-integer year))))
 
 (fn (default-compare-function boolean) ((a t) (b t))
   (not (not (string< (format nil "~a" a)
@@ -260,14 +275,7 @@
   (cond
     ((eq type 'date)
      (or (ignore-errors
-          (let ((year (subseq form-data-string 0 4))
-                (month (subseq form-data-string 5 7))
-                (day (subseq form-data-string 8 10)))
-            (encode-universal-time
-             0 0 0
-             (parse-integer day)
-             (parse-integer month)
-             (parse-integer year))))
+          (http-form-datestring->universal-time form-data-string))
          (random (get-universal-time))))
     ((eq type 'list)
      (let ((cl:*read-eval* nil))
@@ -282,17 +290,19 @@
     (t
      (error "Don't know how to convert the type '~a' from a string" type))))
 
-(fn (deserialize-field-from-http-parameter t) ((field-form-value (or null string))
+(fn (deserialize-field-from-http-parameters t) ((parameters list)
                                                 (table-value t)
                                                 (field field))
-  (when field-form-value
-    (funcall
-     (fdefinition `(setf ,(field-accessor field)))
-     (coerce-form-data-to-type field-form-value
-                               (if (field-references field)
-                                   'integer
-                                   (field-type field)))
-     table-value)))
+  (let ((field-form-value
+          (geta (field-namestring field) parameters)))
+    (when field-form-value
+      (funcall
+       (fdefinition `(setf ,(field-accessor field)))
+       (coerce-form-data-to-type field-form-value
+                                 (if (field-references field)
+                                     'integer
+                                     (field-type field)))
+       table-value))))
 
 (defun derive-set-field-page-from-table (table-name)
   (let* ((def (find-table table-name)))
@@ -300,17 +310,25 @@
      (table-url def "set-field")
      (lambda-with-parameters (id field-namestring value redirect-url)
        (let* ((id (parse-integer id :junk-allowed t))
-              (table-val (funcall (table-get-function def) id))
+              (table-value (funcall (table-get-function def) id))
               (field (find field-namestring (table-fields def)
                            :test #'string=
                            :key #'field-namestring)))
 
          (assert field)
 
-         (deserialize-field-from-http-parameter value table-val field)
+         (let ((field-form-value value))
+           (when field-form-value
+             (funcall
+              (fdefinition `(setf ,(field-accessor field)))
+              (coerce-form-data-to-type field-form-value
+                                        (if (field-references field)
+                                            'integer
+                                            (field-type field)))
+              table-value)))
          
          ;; Save Value
-         (funcall (table-set-function def) table-val)
+         (funcall (table-set-function def) table-value)
 
          ;; Redirect (get, post, redirect pattern)
          (hunchentoot:redirect redirect-url :code 303))))))
@@ -320,6 +338,7 @@
     (register-page
      (table-url def "save")
      (lambda-with-parameters (id)
+       (assert id)
        (let* ((params (hunchentoot:post-parameters*))
               (id (parse-integer id :junk-allowed t))
               (redirect-url (geta "redirect-url" params))
@@ -327,9 +346,13 @@
 
          ;; iterate over all fields, getting their values from
          ;; parameters and setting them when non-null
-         (mapcar (lambda (field) (deserialize-field-from-http-parameter
-                                  (geta (field-namestring field) params)
-                                  val field))
+         (mapcar (lambda (field)
+                   (let ((custom-decoder (config-http-parameter-decoding-function
+                                          (get-page-config field))))
+                     (if custom-decoder
+                         (funcall custom-decoder params val field)
+                         (deserialize-field-from-http-parameters
+                          params val field))))
                  
                  (remove "id" (table-fields def) :key #'field-namestring
                                                  :test #'string=))

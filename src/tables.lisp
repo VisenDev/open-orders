@@ -161,27 +161,59 @@
 
 (defstruct shipment date amount)
 
+(defun po-details-decode-release-schedule (parameters-alist po-details field)
+  (loop
+    :with field-namestring = (field-namestring field)
+    :with field-namestring-len = (length field-namestring)
+    :with results = (make-hash-table)
+    :for (param-name . param-value) :in parameters-alist
+    :for (param-namestring param-index param-subfieldname)
+      = (uiop:split-string param-name :separator '(#\|))
+    :when (string= param-namestring field-namestring)
+      :do (push (cons param-subfieldname param-value)
+      (gethash (parse-integer param-index) results))
+    :finally (setf (po-details-release-schedule po-details)
+                   (mapcar
+                    (lambda (shipment-alist)
+                      (make-shipment :date (or (ignore-errors
+                                                (http-form-datestring->universal-time
+                                                 (geta "date" shipment-alist)))
+                                               0)
+                                     :amount (parse-integer 
+                                              (geta "amount" shipment-alist)
+                                              :junk-allowed t)))
+                    (mapcar #'cdr
+                            (sort (loop :for index :being :the :hash-keys :of results
+                                          :using (hash-value val)
+                                        :collect (cons index val))
+                                  #'<
+                                  :key #'car))))))
+
 (defun generate-release-schedule-edit-ui (id def field value)
   (let* ((mobilep (mobile-browser-p))
          (add-row-button
            (button
                (:type "submit"
                 :name "redirect-url"
-                :value (table-url
-                        def "set-field"
-                        (cons :id id)
-                        (cons :field-namestring
-                              (field-namestring field))
-                        (cons :value
-                              (let ((*package* (find-package 'cl)))
-                                (format nil "~S"
-                                        (cons
-                                         (make-shipment
-                                          :amount 1000
-                                          :date (get-universal-time))
-                                         value))))
-                        (cons :redirect-url
-                              (hunchentoot:request-uri*))))
+
+                ;; TODO figure out how to make this save
+                :value
+                (table-url
+                 def "set-field"
+                 (cons :id id)
+                 (cons :field-namestring
+                       (field-namestring field))
+                 (cons :value
+                       (let ((*package* (find-package 'cl)))
+                         (format nil "~S"
+                                 (cons
+                                  (make-shipment
+                                   :amount 1000
+                                   :date (get-universal-time))
+                                  value))))
+                 (cons :redirect-url
+                       (hunchentoot:request-uri*)))
+)
              "Add Row")))
     (list
      (if mobilep
@@ -196,7 +228,7 @@
            (th () "Date")
            (th () "Amount")))
      (loop
-       :for shipment :in value
+       :for shipment :in (sort value #'< :key #'shipment-date)
        :for i :from 0
        :for date
          = (input (:value (multiple-value-bind
@@ -205,13 +237,13 @@
                                (shipment-date shipment))
                             (declare (ignore second minute hour))
                             (format nil "~a-~2,'0d-~2,'0d" year month date))
-                   :name (format nil "~a-~a-date"
+                   :name (format nil "~a|~a|date"
                                  (field-namestring field)
                                  i)
                    :type "date"))
        :for amount
          = (input (:value (shipment-amount shipment)
-                   :name (format nil "~a-~a-amount"
+                   :name (format nil "~a|~a|amount"
                                  (field-namestring field)
                                  i)))
        :if mobilep
@@ -284,4 +316,6 @@
       (:page-config
        (page-config
         :edit-ui-generator
-        generate-release-schedule-edit-ui)))))
+        generate-release-schedule-edit-ui
+        :http-parameter-decoding-function
+        po-details-decode-release-schedule)))))
