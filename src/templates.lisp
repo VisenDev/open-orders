@@ -55,17 +55,14 @@
         (body ()
           (funcall body-callback)
           (script (:id "PWA-registration")
-            "if (\"serviceWorker\" in navigator) { navigator.serviceWorker.register(\"/service-worker.js\"); }"))
-        
-        )))
-  )
+            "if (\"serviceWorker\" in navigator) {
+navigator.serviceWorker.register(\"/service-worker.js\");
+}"))))))
 
 (defmacro with-page (&body body)
   `(call-with-page
     (lambda ()
       (list ,@body))))
-
-
 
 (defun insert-toplevel-tabs ()
   (html-table ()

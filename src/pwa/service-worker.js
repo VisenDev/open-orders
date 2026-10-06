@@ -1,8 +1,11 @@
-const CACHE = "open-orders-v1";
+// LLM Generated Code
+//
+// Because I cannot be bothered to write javascript
+
+const CACHE = "open-orders-v2";
 
 const STATIC = [
     "/",
-    // "/orders.css",
     "/icon-128.png",
     "/icon-512.png"
 ];
@@ -14,20 +17,51 @@ self.addEventListener("install", event => {
     );
 });
 
+self.addEventListener("activate", event => {
+    event.waitUntil(
+        caches.keys().then(keys =>
+            Promise.all(
+                keys.filter(key => key !== CACHE)
+                    .map(key => caches.delete(key))
+            )
+        )
+    );
+});
+
 self.addEventListener("fetch", event => {
-    if (event.request.method !== "GET")
+    const request = event.request;
+    const url = new URL(request.url);
+
+    if (request.method !== "GET" ||
+        url.origin !== self.location.origin)
         return;
 
-    event.respondWith(
-        fetch(event.request)
-            .then(response => {
-                const copy = response.clone();
+    const staticResource =
+        url.pathname === "/css" ||
+        /\.(css|js|json|png)$/.test(url.pathname);
 
-                caches.open(CACHE)
-                    .then(cache => cache.put(event.request, copy));
+    event.respondWith(
+        caches.open(CACHE).then(async cache => {
+            if (staticResource) {
+                // Cache-first
+                const cached = await cache.match(request);
+                if (cached) return cached;
+            }
+
+            try {
+                const response = await fetch(request);
+
+                if (response.ok) {
+                    await cache.put(request, response.clone());
+                }
 
                 return response;
-            })
-            .catch(() => caches.match(event.request))
+            } catch (error) {
+                // Offline fallback
+                const cached = await cache.match(request);
+                if (cached) return cached;
+                throw error;
+            }
+        })
     );
 });
