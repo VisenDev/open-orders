@@ -15,6 +15,7 @@
      :components ((:file "fn")
                   (:file "database")
                   (:file "html-generator")
+                  (:file "pwa")
                   (:file "templates")
                   (:file "auth")
                   (:file "css")

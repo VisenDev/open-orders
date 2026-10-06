@@ -41,12 +41,15 @@
            (meta (:charset "utf-8"))
            (meta (:name "viewport"
                   :content "width=device-width, initial-scale=1"))
-           (link (:href ;; "/orders.css"
-                  (get-css-href)
-                  :rel "stylesheet")))
+           (link (:href (get-css-href)
+                  :rel "stylesheet"))
+           (link (:rel "manifest"
+                  :href "/manifest.json")))
          (body ()
            ,@body
-           )))))
+           )
+         (script (:id "PWA-registration")
+           "if (\"serviceWorker\" in navigator) { navigator.serviceWorker.register(\"/service-worker.js\"); }")))))
 
 
 

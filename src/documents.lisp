@@ -5,8 +5,6 @@
    #:generate-order-confirmation))
 (in-package #:open-orders.documents)
 
-(in-package :cl-user)
-
 
 ;; Example from the cl-typesetting repo
 (defun test-table (&optional (file "test-table.pdf")
