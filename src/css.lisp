@@ -9,7 +9,7 @@
 (defparameter *styles*
   (mapcar (lambda (path) (cons (pathname-name path) (uiop:read-file-string path)))
           (directory "src/css/*.css")))
-(defparameter *default-style* "open-orders")
+(defparameter *default-style* "new")
 
 ;; CSS loader handler
 (hunchentoot:define-easy-handler (css :uri "/css") (style)

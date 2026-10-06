@@ -31,25 +31,39 @@
   (format nil "/css?style=~a"
           (or (hunchentoot:cookie-in *css-style-cookie*) "")))
 
+(hunchentoot:define-easy-handler (save-scroll :uri "/save-scroll.js") ()
+  (hunchentoot:handle-static-file
+   (asdf:system-relative-pathname
+    "open-orders" "src/save-scroll.js")
+   "text/javascript"))
+
+(defun call-with-page (body-callback)
+  (progn
+    (setf (hunchentoot:content-type*) "text/html")
+    (doctype ()
+      (html ()
+        (head ()
+          (title () "Open Orders")
+          (meta (:charset "utf-8"))
+          (meta (:name "viewport"
+                 :content "width=device-width, initial-scale=1"))
+          (link (:href (get-css-href)
+                 :rel "stylesheet"))
+          (link (:rel "manifest"
+                 :href "/manifest.json"))
+          (script (:src "/save-scroll.js")))
+        (body ()
+          (funcall body-callback)
+          (script (:id "PWA-registration")
+            "if (\"serviceWorker\" in navigator) { navigator.serviceWorker.register(\"/service-worker.js\"); }"))
+        
+        )))
+  )
+
 (defmacro with-page (&body body)
-  `(progn
-     (setf (hunchentoot:content-type*) "text/html")
-     (doctype ()
-       (html ()
-         (head ()
-           (title () "Open Orders")
-           (meta (:charset "utf-8"))
-           (meta (:name "viewport"
-                  :content "width=device-width, initial-scale=1"))
-           (link (:href (get-css-href)
-                  :rel "stylesheet"))
-           (link (:rel "manifest"
-                  :href "/manifest.json")))
-         (body ()
-           ,@body
-           )
-         (script (:id "PWA-registration")
-           "if (\"serviceWorker\" in navigator) { navigator.serviceWorker.register(\"/service-worker.js\"); }")))))
+  `(call-with-page
+    (lambda ()
+      (list ,@body))))
 
 
 

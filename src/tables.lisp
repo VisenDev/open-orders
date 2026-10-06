@@ -189,31 +189,44 @@
                                   #'<
                                   :key #'car))))))
 
+(hunchentoot:define-easy-handler
+    (release-schedule-add-shipment :uri "/release-schedule-add-shipment")
+    (id redirect-url)
+
+  (let ((po-details (get-po-details (parse-integer id))))
+    (push (make-shipment :amount 0 :date (get-universal-time))
+          (po-details-release-schedule po-details))
+    (set-po-details po-details))
+  (hunchentoot:redirect redirect-url
+                        :code 303))
+
+(hunchentoot:define-easy-handler
+    (release-schedule-delete-shipment :uri "/release-schedule-delete-shipment")
+    (id redirect-url shipment-index)
+
+  (let ((po-details (get-po-details (parse-integer id)))
+        (idx (parse-integer shipment-index)))
+    (setf (po-details-release-schedule po-details)
+          (concatenate 'list
+                       (subseq (po-details-release-schedule po-details) 0 idx)
+                       (subseq (po-details-release-schedule po-details) (1+ idx))))
+    (set-po-details po-details))
+  (hunchentoot:redirect redirect-url
+                        :code 303))
+
 (defun generate-release-schedule-edit-ui (id def field value)
+  (declare (ignore def))
   (let* ((mobilep (mobile-browser-p))
          (add-row-button
            (button
                (:type "submit"
                 :name "redirect-url"
-
-                ;; TODO figure out how to make this save
                 :value
-                (table-url
-                 def "set-field"
-                 (cons :id id)
-                 (cons :field-namestring
-                       (field-namestring field))
-                 (cons :value
-                       (let ((*package* (find-package 'cl)))
-                         (format nil "~S"
-                                 (cons
-                                  (make-shipment
-                                   :amount 1000
-                                   :date (get-universal-time))
-                                  value))))
-                 (cons :redirect-url
-                       (hunchentoot:request-uri*)))
-)
+                (format nil
+                        "/release-schedule-add-shipment?id=~a&redirect-url=~a"
+                        id
+                        (url-rewrite:url-encode
+                         (hunchentoot:request-uri*))))
              "Add Row")))
     (list
      (if mobilep
@@ -252,9 +265,23 @@
                (tr () (td () amount))
                (tr () (td () (hr ()))))
        :else
-         :collect (tr ()
-                    (td () date)
-                    (td () amount))
+         :collect
+         (tr ()
+           (td () date)
+           (td () amount)
+           (td ()
+             (button
+                 (:type "submit"
+                  :name "redirect-url"
+                  :value
+                  (format
+                   nil
+                   "/release-schedule-delete-shipment?id=~a&redirect-url=~a&shipment-index=~a"
+                   id
+                   (url-rewrite:url-encode
+                    (hunchentoot:request-uri*))
+                   i))
+               "❌")))
        :end))))
 
 (define-table po-details
