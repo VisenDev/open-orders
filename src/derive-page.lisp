@@ -5,6 +5,7 @@
         #:open-orders.templates
         #:open-orders.auth
         #:open-orders.fn
+        #:open-orders.serve
         )
   (:import-from #:url-rewrite
                 #:url-encode)
@@ -26,18 +27,6 @@
 (in-package #:open-orders.derive-page)
 
 (defparameter *max-columns-on-mobile* 2)
-
-(defvar *hunchentoot-dispatchers* (make-hash-table :test 'equal))
-(fn (register-page t) ((url string) (callback (function () t)))
-  "Registers a hunchentoot dispatcher match url"
-  (let ((existing-dispatcher (gethash url *hunchentoot-dispatchers*)))
-    (when (not (null existing-dispatcher))
-      (setf hunchentoot:*dispatch-table*
-            (delete existing-dispatcher hunchentoot:*dispatch-table*))))
-
-  (let ((dispatcher (hunchentoot:create-prefix-dispatcher url callback)))
-    (setf (gethash url *hunchentoot-dispatchers*) dispatcher)
-    (push dispatcher hunchentoot:*dispatch-table*)))
 
 (defstruct (page-config (:conc-name config-)
                         (:constructor page-config))
@@ -202,6 +191,7 @@
                             (when search
                               (input (:type "submit"
                                       :name "clear"
+                                      :class "selectable search-clear"
                                       :value "Clear")))))))
          (with-internal-page
            (hr ())
@@ -509,32 +499,6 @@
            (form (:method "post" :action (table-url def "save" (cons :id id))
                    :id (format nil "~a-form" (table-namestring def)))
 
-             ;; Warn on unload if data has not been saved
-             ;; TODO: move this script to its own endpoint
-             (span ()
-               (format
-                nil 
-                "<script>
-                let dirty = false;
-                
-                const form = document.querySelector(\"#~a\");
-                
-                form.addEventListener(\"input\", () => {
-                    dirty = true;
-                });
-                
-                form.addEventListener(\"submit\", () => {
-                    dirty = false;
-                });
-                
-                window.addEventListener(\"beforeunload\", (event) => {
-                    if (dirty) {
-                        event.preventDefault();
-                        event.returnValue = \"\";
-                    }
-                });
-                </script>" (format nil "~a-form" (table-namestring def))))
-             
              (html-table ()
                (tr (:class "selectable")
                  (td ()
@@ -550,7 +514,7 @@
                  (td ()
                    (button (:command "show-modal"
                             :commandfor "confirm-delete"
-                            :class "delete-button"
+                            :class "delete-button selectable"
                             :type "button")
                      "delete"))))
              (hr ())
@@ -567,13 +531,17 @@
                         :def def
                         :field field
                         :value (funcall (field-accessor field) table-value))))))
+
+           ;; warn unsaved
+           (script (:src "/js/warn-unsaved.js"))
            
            ;; delete modal for deleting a record
            (dialog (:id "confirm-delete")
              (html-table ()
                (tr ()
                  (td ()
-                   (a (:href (table-url
+                   (a (:class "selectable"
+                       :href (table-url
                               def "delete"
                               (cons :id (funcall (table-id-accessor def)
                                                  table-value))))
@@ -583,7 +551,8 @@
                    (hr ())))
                (tr ()
                  (td ()
-                   (button (:command "close"
+                   (button (:class "selectable"
+                            :command "close"
                             :commandfor "confirm-delete"
                             :type "button")
                      "Cancel")))))))))))

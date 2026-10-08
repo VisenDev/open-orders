@@ -18,6 +18,7 @@
                   (:file "pwa")
                   (:file "templates")
                   (:file "auth")
+                  (:file "serve")
                   (:file "css")
                   (:file "derive-page")
                   (:file "random")

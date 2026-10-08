@@ -27,21 +27,7 @@
              (search "Mobile" user-agent)))))
 
 (defparameter *css-style-cookie* "CSS_STYLE")
-(defun get-css-href ()
-  (format nil "/css?style=~a"
-          (or (hunchentoot:cookie-in *css-style-cookie*) "")))
-
-(hunchentoot:define-easy-handler (save-scroll :uri "/save-scroll.js") ()
-  (hunchentoot:handle-static-file
-   (asdf:system-relative-pathname
-    "open-orders" "src/save-scroll.js")
-   "text/javascript"))
-
-(hunchentoot:define-easy-handler (keyboard-navigation :uri "/keyboard-navigation.js") ()
-  (hunchentoot:handle-static-file
-   (asdf:system-relative-pathname
-    "open-orders" "src/keyboard-navigation.js")
-   "text/javascript"))
+(defparameter *css-style-default* "classless")
 
 (defun call-with-page (body-callback)
   (progn
@@ -53,18 +39,17 @@
           (meta (:charset "utf-8"))
           (meta (:name "viewport"
                  :content "width=device-width, initial-scale=1"))
-          (link (:href (get-css-href)
+          (link (:href (format nil "/css/~a.css"
+                               (or (hunchentoot:cookie-in *css-style-cookie*)
+                                   *css-style-default*))
                  :rel "stylesheet"))
           (link (:rel "manifest"
                  :href "/manifest.json"))
-          (script (:src "/save-scroll.js")))
+          (script (:src "/js/save-scroll.js")))
         (body ()
           (funcall body-callback)
-          (script (:id "PWA-registration")
-            "if (\"serviceWorker\" in navigator) {
-navigator.serviceWorker.register(\"/service-worker.js\");
-}")
-          (script (:src "/keyboard-navigation.js?v=4")))))))
+          (script (:src "/js/pwa-registration.js"))
+          (script (:src "/js/keyboard-navigation.js?v=5")))))))
 
 (defmacro with-page (&body body)
   `(call-with-page
@@ -88,3 +73,6 @@ navigator.serviceWorker.register(\"/service-worker.js\");
                           :class "toplevel-link selectable")
                         (tab-name tab))))
                   *toplevel-tabs*)))))
+
+
+
