@@ -1,3 +1,7 @@
+// LLM Generated Code
+//
+// Because I cannot be bothered to write javascript
+
 const scrollKey = "scroll:" + location.pathname;
 
 if (sessionStorage.getItem(scrollKey) !== null) {

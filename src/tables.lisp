@@ -244,7 +244,8 @@
        :for shipment :in (sort value #'< :key #'shipment-date)
        :for i :from 0
        :for date
-         = (input (:value (multiple-value-bind
+         = (input (:class "selectable"
+                   :value (multiple-value-bind
                                 (second minute hour date month year)
                               (decode-universal-time
                                (shipment-date shipment))
@@ -255,7 +256,8 @@
                                  i)
                    :type "date"))
        :for amount
-         = (input (:value (shipment-amount shipment)
+         = (input (:class "selectable"
+                   :value (shipment-amount shipment)
                    :name (format nil "~a|~a|amount"
                                  (field-namestring field)
                                  i)))
@@ -266,13 +268,14 @@
                (tr () (td () (hr ()))))
        :else
          :collect
-         (tr ()
+         (tr (:class "selectable")
            (td () date)
            (td () amount)
            (td ()
              (button
                  (:type "submit"
                   :name "redirect-url"
+                  :class "selectable"
                   :value
                   (format
                    nil

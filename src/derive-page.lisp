@@ -186,14 +186,18 @@
                (td ()
                  (form (:action (table-url def "new"))
                    (input
-                    (:type "submit"
+                    (:class "new-button selectable"
+                     :type "submit"
                      :value (format nil "new ~a" (table-namestring def)))))))
              (list-form (td ()
-                          (form (:action (table-url def "list"))
+                          (form (:action (table-url def "list")
+                                 :class "search-form")
                             (input (:type "text"
                                     :name "search"
+                                    :class "search-box selectable"
                                     :value (if search search "")))
                             (input (:type "submit"
+                                    :class "search-submit selectable"
                                     :value "Search"))
                             (when search
                               (input (:type "submit"
@@ -201,17 +205,17 @@
                                       :value "Clear")))))))
          (with-internal-page
            (hr ())
-           (html-table ()
+           (html-table (:class "selectable")
              (if (mobile-browser-p)
                  (list (tr () new-form)
                        (tr () list-form))
                  (tr ()
                    new-form list-form)))
            (hr ())
-           (html-table (:class "border")
+           (html-table ()
 
              ;; table header
-             (tr ()
+             (tr (:class "selectable")
                (remove
                 nil
                 (loop
@@ -221,7 +225,8 @@
                                             (length listed-fields))
                   :collect
                   (th ()
-                    (a (:href
+                    (a (:class "selectable"
+                        :href
                         (table-url
                          def "list"
                          (cons :sort-by (field-namestring field))
@@ -238,14 +243,14 @@
                :for val :across (get-every-table-value-filtered
                                  table-name sort-by search reverse)
                :collect
-               (tr ()
+               (tr (:class "selectable")
                  (loop
                    :for field :in listed-fields
                    :for i :from 0 :below (if (mobile-browser-p)
                                              *max-columns-on-mobile*
                                              (length listed-fields))
                    :collect
-                   (td ()
+                   (td (:class "data-item")
                      (a (:href (table-url
                                 def "edit"
                                 (cons :id (funcall
@@ -380,60 +385,63 @@
 
              ((not (null references))
               ;; Dropdown for foreign tables
-              (list
-               
-               (select (:name namestring)
-                 ;; Foreign table definition lookup
-                 (loop
-                   :with get-every = (table-get-every-function foreign-def)
-                   :with all-foreign-values = (funcall get-every)
-                   :with sorted-values = (sort all-foreign-values #'string<
-                                               :key (if (config-display-as page-config)
-                                                        (config-display-as page-config)
-                                                        (lambda (thing)
-                                                          (format nil "~a" thing))))
-                   :for foreign-table-value :across sorted-values
-                   :for foreign-id
-                     = (funcall (table-id-accessor foreign-def)
-                                foreign-table-value)
+              (span (:class "selectable")
+                (list
+                 
+                 (select (:name namestring :class "selectable")
+                   ;; Foreign table definition lookup
+                   (loop
+                     :with get-every = (table-get-every-function foreign-def)
+                     :with all-foreign-values = (funcall get-every)
+                     :with sorted-values = (sort all-foreign-values #'string<
+                                                 :key (if (config-display-as page-config)
+                                                          (config-display-as page-config)
+                                                          (lambda (thing)
+                                                            (format nil "~a" thing))))
+                     :for foreign-table-value :across sorted-values
+                     :for foreign-id
+                       = (funcall (table-id-accessor foreign-def)
+                                  foreign-table-value)
 
-                   :for option-body =
-                                    (if (config-display-as page-config)
-                                        (ignore-errors
-                                         (funcall (config-display-as page-config)
-                                                  foreign-table-value))
-                                        foreign-table-value)
-                                    
-                                    ;; collect html options for each foreign value
-                   :collect
+                     :for option-body =
+                                      (if (config-display-as page-config)
+                                          (ignore-errors
+                                           (funcall (config-display-as page-config)
+                                                    foreign-table-value))
+                                          foreign-table-value)
+                                      
+                                      ;; collect html options for each foreign value
+                     :collect
 
-                   ;; eql not '=', since foreign id may
-                   ;; be nil
-                   (if (eql foreign-id value)
-                       (option (:selected "selected"
-                                :value foreign-id)
-                         option-body)
+                     ;; eql not '=', since foreign id may
+                     ;; be nil
+                     (if (eql foreign-id value)
+                         (option (:selected "selected"
+                                  :value foreign-id)
+                           option-body)
 
-                       ;; else the id is not the currently
-                       ;; chosen id
-                       (option (:value foreign-id)
-                         option-body))))
+                         ;; else the id is not the currently
+                         ;; chosen id
+                         (option (:value foreign-id)
+                           option-body))))
 
-               ;; View Foreign Table Value Button
-               (button (:type "submit"
-                        :name "redirect-url"
-                        :value (table-url def "view-reference"
-                                          (cons :id id)
-                                          (cons :field-name namestring)
-                                          (cons :back-url (hunchentoot:request-uri*))))
-                 "View")
+                 ;; View Foreign Table Value Button
+                 (button (:type "submit"
+                          :name "redirect-url"
+                          :class "selectable"
+                          :value (table-url def "view-reference"
+                                            (cons :id id)
+                                            (cons :field-name namestring)
+                                            (cons :back-url (hunchentoot:request-uri*))))
+                   "View")
 
-               ;; New reference button
-               (button (:type "submit"
-                        :name "redirect-url"
-                        :value (table-url foreign-def "new"
-                                          (cons :back-url (hunchentoot:request-uri*))))
-                 "New")))
+                 ;; New reference button
+                 (button (:type "submit"
+                          :name "redirect-url"
+                          :class "selectable"
+                          :value (table-url foreign-def "new"
+                                            (cons :back-url (hunchentoot:request-uri*))))
+                   "New"))))
 
              (t
               
@@ -443,6 +451,7 @@
                nil
                (list
                 (input (:name namestring
+                        :class "selectable"
                         :value (cond
                                  ((eq type 'date)
                                   (multiple-value-bind
@@ -501,6 +510,7 @@
                    :id (format nil "~a-form" (table-namestring def)))
 
              ;; Warn on unload if data has not been saved
+             ;; TODO: move this script to its own endpoint
              (span ()
                (format
                 nil 
@@ -526,18 +536,21 @@
                 </script>" (format nil "~a-form" (table-namestring def))))
              
              (html-table ()
-               (tr ()
+               (tr (:class "selectable")
                  (td ()
                    (button (:type "submit" :name "redirect-url"
+                            :class "selectable back-button"
                             :value (if back-url back-url (table-url def "list")))
                      "back"))
                  (td ()
                    (button (:type "submit" :name "redirect-url"
+                            :class "selectable save-button"
                             :value (hunchentoot:request-uri*))
                      "save"))
                  (td ()
                    (button (:command "show-modal"
                             :commandfor "confirm-delete"
+                            :class "delete-button"
                             :type "button")
                      "delete"))))
              (hr ())

@@ -37,6 +37,12 @@
     "open-orders" "src/save-scroll.js")
    "text/javascript"))
 
+(hunchentoot:define-easy-handler (keyboard-navigation :uri "/keyboard-navigation.js") ()
+  (hunchentoot:handle-static-file
+   (asdf:system-relative-pathname
+    "open-orders" "src/keyboard-navigation.js")
+   "text/javascript"))
+
 (defun call-with-page (body-callback)
   (progn
     (setf (hunchentoot:content-type*) "text/html")
@@ -57,7 +63,8 @@
           (script (:id "PWA-registration")
             "if (\"serviceWorker\" in navigator) {
 navigator.serviceWorker.register(\"/service-worker.js\");
-}"))))))
+}")
+          (script (:src "/keyboard-navigation.js?v=4")))))))
 
 (defmacro with-page (&body body)
   `(call-with-page
@@ -65,17 +72,19 @@ navigator.serviceWorker.register(\"/service-worker.js\");
       (list ,@body))))
 
 (defun insert-toplevel-tabs ()
-  (html-table ()
+  (html-table (:class "toplevel-link-table selectable")
     (if (mobile-browser-p)
         (mapcar (lambda (tab)
-                  (tr ()
-                    (td ()
-                      (a (:href (tab-url tab))
+                  (tr (:class "toplevel-mobile-link-row")
+                    (td (:class "toplevel-mobile-link-data")
+                      (a (:class "selectable toplevel-link"
+                          :href (tab-url tab))
                         (tab-name tab)))))
                 *toplevel-tabs*)
-        (tr ()
+        (tr (:class "toplevel-link-row")
           (mapcar (lambda (tab)
-                    (td ()
-                      (a (:href (tab-url tab))
+                    (td (:class "toplevel-link-data")
+                      (a (:href (tab-url tab)
+                          :class "toplevel-link selectable")
                         (tab-name tab))))
                   *toplevel-tabs*)))))
