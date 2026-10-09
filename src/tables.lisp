@@ -214,6 +214,17 @@
   (hunchentoot:redirect redirect-url
                         :code 303))
 
+(defparameter *cache-buster* 0)
+(defun cache-bust-url (in)
+  (let* ((query-params-p (find #\? in))
+         (cache-buster-index (search "cache-buster" in)))
+    (concatenate 'string (subseq in 0 cache-buster-index)
+                 (unless cache-buster-index (if query-params-p "&" "?"))
+                 "cache-buster="
+                 (format nil "~a" (incf *cache-buster*))
+                 (subseq in (or (position #\& in :start (1+ (or cache-buster-index 0)))
+                                (length in))))))
+
 (defun generate-release-schedule-edit-ui (id def field value)
   (declare (ignore def))
   (let* ((mobilep (mobile-browser-p))
@@ -226,7 +237,7 @@
                         "/release-schedule-add-shipment?id=~a&redirect-url=~a"
                         id
                         (url-rewrite:url-encode
-                         (hunchentoot:request-uri*))))
+                         (cache-bust-url (hunchentoot:request-uri*)))))
              "Add Row")))
     (list
      (if mobilep
@@ -281,8 +292,7 @@
                    nil
                    "/release-schedule-delete-shipment?id=~a&redirect-url=~a&shipment-index=~a"
                    id
-                   (url-rewrite:url-encode
-                    (hunchentoot:request-uri*))
+                   (url-rewrite:url-encode (cache-bust-url (hunchentoot:request-uri*)))
                    i))
                "❌")))
        :end))))
