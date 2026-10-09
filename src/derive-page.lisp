@@ -525,12 +525,11 @@
                                             :key #'field-namestring
                                             :test #'string=)
                      :collect
-                     (span (:id (format nil "~a-edit" (field-namestring field)))
-                       (generate-form-input-from-field
-                        :id (or (parse-integer id :junk-allowed t) 0)
-                        :def def
-                        :field field
-                        :value (funcall (field-accessor field) table-value))))))
+                        (generate-form-input-from-field
+                         :id (or (parse-integer id :junk-allowed t) 0)
+                         :def def
+                         :field field
+                         :value (funcall (field-accessor field) table-value)))))
 
            ;; warn unsaved
            (script (:src "/js/warn-unsaved.js"))
