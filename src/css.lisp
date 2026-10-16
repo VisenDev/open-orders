@@ -8,7 +8,7 @@
 
 (defparameter *styles*
   (mapcar #'pathname-name (directory "src/css/*.css")))
-(static-serve-directory "/css/" "src/css" "text/css")
+(static-serve-directory "/css/" "src/css/" "text/css")
 
 (hunchentoot:define-easy-handler (set-css :uri "/set-css") (redirect-url style)
   (hunchentoot:set-cookie *css-style-cookie* :value style)

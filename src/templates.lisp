@@ -26,30 +26,49 @@
              (search "iPad" user-agent)
              (search "Mobile" user-agent)))))
 
+(defun dillo-browser-p ()
+  (let ((user-agent (hunchentoot:header-in* :user-agent)))
+    (and user-agent
+         (search "Dillo" user-agent)))) 
+
 (defparameter *css-style-cookie* "CSS_STYLE")
 (defparameter *css-style-default* "classless")
+
+(defparameter *cache-buster* 0)
 
 (defun call-with-page (body-callback)
   (progn
     (setf (hunchentoot:content-type*) "text/html")
-    (doctype ()
-      (html ()
-        (head ()
-          (title () "Open Orders")
-          (meta (:charset "utf-8"))
-          (meta (:name "viewport"
-                 :content "width=device-width, initial-scale=1"))
-          (link (:href (format nil "/css/~a.css"
-                               (or (hunchentoot:cookie-in *css-style-cookie*)
-                                   *css-style-default*))
-                 :rel "stylesheet"))
-          (link (:rel "manifest"
-                 :href "/manifest.json"))
-          (script (:src "/js/save-scroll.js")))
-        (body ()
-          (funcall body-callback)
-          (script (:src "/js/pwa-registration.js"))
-          (script (:src "/js/keyboard-navigation.js?v=5")))))))
+    (let ((html-string
+            (doctype ()
+              (html ()
+                (head ()
+                  (title () "Open Orders")
+                  (meta (:charset "utf-8"))
+                  (meta (:name "viewport"
+                         :content "width=device-width, initial-scale=1"))
+                  (link (:href (format nil "/css/~a.css"
+                                       (or (hunchentoot:cookie-in *css-style-cookie*)
+                                           *css-style-default*))
+                         :rel "stylesheet"))
+                  (link (:rel "manifest"
+                         :href "/manifest.json"))
+                  (script (:src "/js/save-scroll.js")))
+                (body ()
+                  (funcall body-callback)
+                  (script (:src "/js/pwa-registration.js"))
+                  (script (:src "/js/keyboard-navigation.js?v=5")))))))
+      (if (dillo-browser-p)
+          (let* ((*standard-input* (make-string-input-stream html-string))
+                 (buf (make-string-output-stream))
+                 (*standard-output* buf))
+            (url-rewrite:rewrite-urls
+             (lambda (url)
+               (url-rewrite:add-get-param-to-url
+                url "cache-buster"
+                (format nil "~a" (incf *cache-buster*)))))
+            (get-output-stream-string buf))
+          html-string))))
 
 (defmacro with-page (&body body)
   `(call-with-page
