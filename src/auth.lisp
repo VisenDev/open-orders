@@ -6,7 +6,8 @@
   (:export
    #:perform-auth-check
    #:with-internal-page
-   #:auth-token-create))
+   #:auth-token-create
+   #:user-create-new))
 (in-package #:open-orders.auth)
 
 (define-table user
