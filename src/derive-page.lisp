@@ -23,7 +23,8 @@
    #:derive-delete-page-from-table
    #:derive-view-reference-page-from-table
    #:derive-set-field-page-from-table
-   #:http-form-datestring->universal-time))
+   #:http-form-datestring->universal-time
+   #:define-edit-ui-generator))
 (in-package #:open-orders.derive-page)
 
 (defparameter *max-columns-on-mobile* 2)
@@ -274,7 +275,9 @@
          (random (get-universal-time))))
     ((eq type 'list)
      (let ((cl:*read-eval* nil))
-       (read-from-string form-data-string)))
+       (handler-case
+           (read-from-string form-data-string)
+         (end-of-file () nil))))
     ((subtypep type 'integer)
      (parse-integer form-data-string :junk-allowed t))
     ((subtypep type 'boolean)
@@ -357,6 +360,19 @@
 
          ;; Redirect (get, post, redirect pattern)
          (hunchentoot:redirect redirect-url :code 303))))))
+
+
+;; Remembering what these parameters are and their order is difficult,
+;; so this macro wraps the process of creating an edit-ui-generation function
+(defmacro define-edit-ui-generator
+    (name (table-id-var table-definition-var field-definition-var field-value)
+     &body body)
+  `(defun ,name
+       (,table-id-var ,table-definition-var ,field-definition-var ,field-value)
+     (declare
+      (ignorable
+       ,table-id-var ,table-definition-var ,field-definition-var ,field-value))
+     ,@body))
 
 (fn (generate-form-input-from-field t) (&key ((id integer))
                                              ((def table))

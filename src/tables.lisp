@@ -62,7 +62,14 @@
    #:employee-date-hired
    #:employee-birthday
    #:universal-time->date-string
-   #:get-customer))
+   #:get-customer
+   #:shipping-details
+   #:make-shipping-details
+   #:shipping-details-p
+   #:copy-shipping-details
+   #:shipping-details-id
+   #:shipping-details-release-schedules
+   #:shipping-details-shipments))
 (in-package #:open-orders.tables)
 
 (fn (universal-time->date-string string) ((timestamp date))
@@ -159,133 +166,13 @@
           :type string :initform ""
           :metadata (:page-config (page-config :show-in-list-view-p t)))))
 
+
+(defstruct release-schedule date amount)
 (defstruct shipment date amount)
 
-(defun po-details-decode-release-schedule (parameters-alist po-details field)
-  (loop
-    :with field-namestring = (field-namestring field)
-    :with field-namestring-len = (length field-namestring)
-    :with results = (make-hash-table)
-    :for (param-name . param-value) :in parameters-alist
-    :for (param-namestring param-index param-subfieldname)
-      = (uiop:split-string param-name :separator '(#\|))
-    :when (string= param-namestring field-namestring)
-      :do (push (cons param-subfieldname param-value)
-      (gethash (parse-integer param-index) results))
-    :finally (setf (po-details-release-schedule po-details)
-                   (mapcar
-                    (lambda (shipment-alist)
-                      (make-shipment :date (or (ignore-errors
-                                                (http-form-datestring->universal-time
-                                                 (geta "date" shipment-alist)))
-                                               0)
-                                     :amount (parse-integer 
-                                              (geta "amount" shipment-alist)
-                                              :junk-allowed t)))
-                    (mapcar #'cdr
-                            (sort (loop :for index :being :the :hash-keys :of results
-                                          :using (hash-value val)
-                                        :collect (cons index val))
-                                  #'<
-                                  :key #'car))))))
+(define-table shipping-details ((field release-schedules :type list)
+                                (field shipments :type list)))
 
-(hunchentoot:define-easy-handler
-    (release-schedule-add-shipment :uri "/release-schedule-add-shipment")
-    (id redirect-url)
-
-  (let ((po-details (get-po-details (parse-integer id))))
-    (push (make-shipment :amount 0 :date (get-universal-time))
-          (po-details-release-schedule po-details))
-    (set-po-details po-details))
-  (hunchentoot:redirect redirect-url
-                        :code 303))
-
-(hunchentoot:define-easy-handler
-    (release-schedule-delete-shipment :uri "/release-schedule-delete-shipment")
-    (id redirect-url shipment-index)
-
-  (let ((po-details (get-po-details (parse-integer id)))
-        (idx (parse-integer shipment-index)))
-    (setf (po-details-release-schedule po-details)
-          (concatenate 'list
-                       (subseq (po-details-release-schedule po-details) 0 idx)
-                       (subseq (po-details-release-schedule po-details) (1+ idx))))
-    (set-po-details po-details))
-  (hunchentoot:redirect redirect-url
-                        :code 303))
-
-
-(defun generate-release-schedule-edit-ui (id def field value)
-  (declare (ignore def))
-  (let* ((mobilep (mobile-browser-p))
-         (add-row-button
-           (button
-               (:type "submit"
-                :name "redirect-url"
-                :value
-                (format nil
-                        "/release-schedule-add-shipment?id=~a&redirect-url=~a"
-                        id
-                        (url-rewrite:url-encode
-                         (hunchentoot:request-uri*))))
-             "Add Row")))
-    (list
-     (if mobilep
-         (list (tr () (td () "<i>Release Schedule</i>"))
-               (tr () (td () add-row-button))
-               (tr () (td () (hr ()))))
-         (tr ()
-           (td ()  "<i>Release Schedule</i>")
-           (td () add-row-button)))
-     (if mobilep ""
-         (tr ()
-           (th () "Date")
-           (th () "Amount")))
-     (loop
-       :for shipment :in (sort value #'< :key #'shipment-date)
-       :for i :from 0
-       :for date
-         = (input (:class "selectable"
-                   :value (multiple-value-bind
-                                (second minute hour date month year)
-                              (decode-universal-time
-                               (shipment-date shipment))
-                            (declare (ignore second minute hour))
-                            (format nil "~a-~2,'0d-~2,'0d" year month date))
-                   :name (format nil "~a|~a|date"
-                                 (field-namestring field)
-                                 i)
-                   :type "date"))
-       :for amount
-         = (input (:class "selectable"
-                   :value (shipment-amount shipment)
-                   :name (format nil "~a|~a|amount"
-                                 (field-namestring field)
-                                 i)))
-       :if mobilep
-         :collect 
-         (list (tr () (td () date))
-               (tr () (td () amount))
-               (tr () (td () (hr ()))))
-       :else
-         :collect
-         (tr (:class "selectable")
-           (td () date)
-           (td () amount)
-           (td ()
-             (button
-                 (:type "submit"
-                  :name "redirect-url"
-                  :class "selectable"
-                  :value
-                  (format
-                   nil
-                   "/release-schedule-delete-shipment?id=~a&redirect-url=~a&shipment-index=~a"
-                   id
-                   (url-rewrite:url-encode (hunchentoot:request-uri*))
-                   i))
-               "❌")))
-       :end))))
 
 (define-table po-details
     ((field part-number :type string
@@ -339,13 +226,16 @@
                   :metadata (:page-config (page-config
                                            :show-in-list-view-p t
                                            :suggested-values ("Wess Part"))))
-     (field
-      release-schedule
-      :type list
-      :metadata
-      (:page-config
-       (page-config
-        :edit-ui-generator
-        generate-release-schedule-edit-ui
-        :http-parameter-decoding-function
-        po-details-decode-release-schedule)))))
+     (field shipping-details :references shipping-details
+            :metadata (:page-config (page-config :edit-ui-generator shipping-details-edit-ui)))))
+
+(define-edit-ui-generator shipping-details-edit-ui (tableid tabledef fielddef fieldval)
+   (tr ()
+    (td () "Shipping Details")
+    (td ()
+      (button (:type "submit"
+               :name "redirect-url"
+               :value (table-url (find-table 'shipping-details)
+                                 "edit" (cons :id fieldval)
+                                 (cons :back-url (hunchentoot:request-uri*))))
+        "Manage"))))

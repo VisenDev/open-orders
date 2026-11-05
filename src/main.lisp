@@ -39,6 +39,8 @@
 (derive-all-pages 'employee)
 (derive-all-pages 'purchase-order)
 (derive-all-pages 'po-details)
+(derive-edit-page-from-table 'shipping-details)
+(derive-save-page-from-table 'shipping-details)
 
 (hunchentoot:define-easy-handler (home :uri "/") ()
   (hunchentoot:redirect (table-url (find-table 'po-details) "list")))
