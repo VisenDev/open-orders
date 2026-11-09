@@ -1,24 +1,27 @@
-(defpackage #:open-orders.server.db
+(uiop:define-package #:open-orders.server.db
   (:use #:cl #:open-orders.common.fn)
   (:shadow #:set #:get #:delete)
   (:export
-   #:get
-   #:set
-   #:new
    #:connect
    #:disconnect
    #:*db*
    #:*default-database-path*
-   #:null-entity
+   #:invalid-entity
+   #:create
    #:delete
-   #:get-all
+   #:query
+   #:query-components
+   #:get
+   #:set
+   #:get-components
+   #:set-components
    #:entity
    #:make-entity
    #:entity-p
    #:copy-entity
    #:entity-id
-   #:match
-   #:unset))
+   #:unset
+   #:invalid-component))
 (in-package #:open-orders.server.db)
 
 (defvar *default-database-path* "open-orders.sqlite3")
@@ -52,12 +55,14 @@
 
 (defstruct entity id)
 
-(fn (new entity) ()
+(fn (create entity) ()
   (let ((id (sqlite:execute-single
              *db* "insert into entity default values returning id;")))
     (make-entity :id id)))
 
 (fn (delete (values)) ((entity entity))
+  (when (null (entity-id entity))
+    (error 'invalid-entity))
   (sqlite:execute-non-query
    *db*
    "delete from entity where id = ?;"
@@ -65,16 +70,19 @@
   (setf (entity-id entity) nil)
   (values))
 
-(define-condition null-entity (error) ())
+(define-condition invalid-entity (error) ())
+(define-condition invalid-component (error) ())
 
-(fn (set (values)) ((entity entity) (component string) (value t))
+(fn (set (values)) ((entity entity) (component keyword) (value t))
   (when (null (entity-id entity))
-    (error (make-condition 'null-entity)))
+    (error (make-condition 'invalid-entity)))
+  (when (eq component :id)
+    (error (make-condition 'invalid-component)))
   (sqlite:execute-non-query
    *db*
    "insert into component(name, value, entity) values(?, ?, ?)
     on conflict(entity, name) do update set value = excluded.value;"
-   component
+   (symbol-name component)
    (let ((*print-readably* t)
          (*print-circle* t)
          (*package* (find-package :keyword)))
@@ -82,66 +90,84 @@
    (entity-id entity))
   (values))
 
-(fn (unset (values)) ((entity entity) (component string))
+(fn (unset (values)) ((entity entity) (component keyword))
   (when (null (entity-id entity))
-    (error (make-condition 'null-entity)))
+    (error (make-condition 'invalid-entity)))
   (sqlite:execute-non-query
    *db*
    "delete from component where entity = ? and name = ?;"
-   (entity-id entity) component)
+   (entity-id entity) (symbol-name component))
   (values))
 
-(fn (get t) ((entity entity) (component string))
+(fn (get t) ((entity entity) (component keyword))
   (when (null (entity-id entity))
-    (error (make-condition 'null-entity)))
+    (error (make-condition 'invalid-entity)))
   (let ((result
           (sqlite:execute-single
            *db*
            "select value from component where entity = ? and name = ?;"
-           (entity-id entity) component)))
+           (entity-id entity) (symbol-name component))))
     (if (stringp result)
         (nth-value 0 (let ((*read-eval* nil)) (read-from-string result)))
         result)))
 
-(fn (match (vector entity)) ((components (vector string)))
-  (let ((query-results
-          (if (zerop (length components))
-              (sqlite:execute-to-list *db* "select id from entity;")
-              (apply
-               #'sqlite:execute-to-list
-               *db*
-               (format nil "select entity from component where name in (~{~a~^,~}) 
+(fn (query (vector entity)) ((components (vector keyword)))
+  (let* ((component-names-list
+           (mapcar #'symbol-name (remove-duplicates (coerce components 'list))))
+         (query-results
+           (if (zerop (length components))
+               (sqlite:execute-to-list *db* "select id from entity;")
+               (apply
+                #'sqlite:execute-to-list
+                *db*
+                (format nil "select entity from component where name in (~{~a~^,~}) 
                             group by entity having count(*) = ~a;"
-                       (loop :repeat (length components)
-                             :collect "?")
-                       (length components))
-               (remove-duplicates (coerce components 'list) :test #'string=))))
+                        (loop :repeat (length component-names-list)
+                              :collect "?")
+                        (length component-names-list))
+                component-names-list)))
         (result (make-array 0 :element-type 'entity :fill-pointer 0 :adjustable t)))
     (declare (dynamic-extent query-results))
     (dolist (id query-results)
       (vector-push-extend (make-entity :id (first id)) result))
     result))
 
-(fn (get-all list) ((entity entity))
+(fn (get-components trivial-types:property-list) ((entity entity))
   (when (null (entity-id entity))
-    (error (make-condition 'null-entity)))
-  (let ((result
-          (sqlite:execute-to-list
-           *db*
-           "select name,value from component where entity = ?;" (entity-id entity))))
-    (loop :for (key value) :in result
-          :appending (list key
-                           (if (stringp value)
-                               (nth-value 0 (let ((*read-eval* nil))
-                                              (read-from-string value)))
-                               value)))))
+    (error (make-condition 'invalid-entity)))
+  (let* ((result
+           (sqlite:execute-to-list
+            *db*
+            "select name,value from component where entity = ?;"
+            (entity-id entity)))
+         (plist
+           (loop :for (key value) :in result
+                 :appending (list (find-symbol (string-upcase key) :keyword)
+                                  (if (stringp value)
+                                      (nth-value 0 (let ((*read-eval* nil))
+                                                     (read-from-string value)))
+                                      value)))))
+    (setf (getf plist :id) (entity-id entity))
+    plist))
 
-(fn (match-get-all (vector list)) ((components (vector string)))
-  (loop :with entities = (match components)
+(fn (set-components (values)) ((components trivial-types:property-list))
+  (let* ((id (getf components :id)))
+    (unless id
+      (error 'invalid-entity))
+    (sqlite:with-transaction *db*
+      (loop :with entity = (make-entity :id id)
+            :for (key value) :on components :by #'cddr
+            :unless (eq key :id)
+              :do (set entity key value))))
+  (values))
+
+(fn (query-components (vector trivial-types:property-list))
+    ((components (vector keyword)))
+  (loop :with entities = (query components)
         :with result = (make-array (length entities)
                                    :element-type 'trivial-types:property-list
                                    :fill-pointer 0
                                    :initial-element nil)
         :for entity :across entities
-        :do (vector-push-extend (get-all entity) result)
+        :do (vector-push-extend (get-components entity) result)
         :finally (return result)))

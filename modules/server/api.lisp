@@ -15,8 +15,18 @@
 
         (t
          (format nil "~S"
-                 (db:get (db:make-entity :id (print (parse-integer id)))
-                         (intern component '#:keyword))))))
+                 (db:get (db:make-entity :id (parse-integer id))
+                         (intern (string-upcase component) :keyword))))))
+
+(hunchentoot:define-easy-handler (api-get-components :uri "/get-components") (id)
+  (setf (hunchentoot:content-type*) "text/plain")
+  (cond ((or (null id) (string= id ""))
+         (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
+         "No id parameter provided!")
+
+        (t
+         (format nil "~S"
+                 (db:get-components (db:make-entity :id (parse-integer id)))))))
 
 
 
