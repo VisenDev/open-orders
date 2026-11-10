@@ -21,7 +21,13 @@
    #:copy-entity
    #:entity-id
    #:unset
-   #:invalid-component))
+   #:invalid-component
+   #:user-password-correct-p
+   #:user-create
+   #:user-get-auth-token
+   #:user-auth-token-valid-p
+   #:user-update-password
+   #:user-delete))
 (in-package #:open-orders.server.db)
 
 (defvar *default-database-path* "open-orders.sqlite3")
@@ -49,9 +55,61 @@
                     primary key(entity, name)
                   );"
                  "create index if not exists component_name_idx
-                  on component(name, entity);"))
+                  on component(name, entity);"
+                 "create table if not exists user(
+                    username string primary key not null,
+                    hash string,
+                    auth_token string
+                  );"))
     (sqlite:execute-non-query *db* sql))
   (values))
+
+(fn (user-password-correct-p boolean) ((username string) (password string))
+  (let ((hash (sqlite:execute-single
+               *db* "select hash from user where username = ?;"
+               username)))
+    (unless hash (return-from user-password-correct-p nil))
+    (cl-pass:check-password password hash)))
+
+(fn (user-create (values)) ((username string) (password string))
+  (sqlite:execute-non-query
+               *db* "insert into user(username, hash) values(?, ?);"
+               username (cl-pass:hash password))
+  (values))
+
+(fn (user-delete (values)) ((username string))
+  (sqlite:execute-non-query
+   *db* "delete from user where username = ?;" username)
+  (values))
+
+(fn (user-update-password (values)) ((username string) (new-password string))
+  (sqlite:execute-non-query
+   *db* "update user set hash = ? where username = ?;"
+   (cl-pass:hash new-password)
+   username)
+
+  ;; update auth_token
+  (sqlite:execute-non-query
+   *db* "update user set auth_token = ? where username = ?;"
+   (base64:usb8-array-to-base64-string
+    (ironclad:random-data 32))
+   username)
+  (values))
+
+(fn (user-get-auth-token (or string null)) ((username string) (password string))
+  (when (user-password-correct-p username password)
+    (let ((auth-token (base64:usb8-array-to-base64-string
+                       (ironclad:random-data 32)) ))
+      (sqlite:execute-non-query
+       *db* "update user set auth_token = ? where username = ?;"
+       auth-token username)
+      auth-token)))
+
+(fn (user-auth-token-valid-p boolean) ((auth-token string))
+  (let ((username
+          (sqlite:execute-single
+           *db* "select username from user where auth_token = ?;" auth-token)))
+    (if username t nil)))
 
 (defstruct entity id)
 
@@ -115,7 +173,7 @@
   (let* ((component-names-list
            (mapcar #'symbol-name (remove-duplicates (coerce components 'list))))
          (query-results
-           (if (zerop (length components))
+           (if (zerop (length component-names-list))
                (sqlite:execute-to-list *db* "select id from entity;")
                (apply
                 #'sqlite:execute-to-list
