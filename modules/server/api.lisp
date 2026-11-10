@@ -12,120 +12,137 @@
     (parse-error () nil)))
 
 (hunchentoot:define-easy-handler (api-login :uri "/login") (username password)
-  )
-
-(hunchentoot:define-easy-handler (api-get :uri "/get") (id component)
   (setf (hunchentoot:content-type*) "text/plain")
-  (let ((parsed (parse-id-or-nil id)))
-    (cond ((null parsed)
-           (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
-           "Invalid id parameter!")
+  (cond ((db:user-password-correct-p username password)
+         (format nil "~S" (db:user-get-auth-token username password)))
 
-          ((or (null component) (string= component ""))
-           (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
-           "No component parameter provided!")
+        (t
+         (setf (hunchentoot:return-code*)
+               hunchentoot:+HTTP-AUTHORIZATION-REQUIRED+)
+         "")))
 
-          (t
-           (format nil "~S"
-                   (db:get (db:make-entity :id parsed)
-                           (intern (string-upcase component) :keyword)))))))
-
-(hunchentoot:define-easy-handler (api-set :uri "/set") (id component value)
+(hunchentoot:define-easy-handler (api-get :uri "/get") (auth-token id component)
   (setf (hunchentoot:content-type*) "text/plain")
-  (let ((parsed (parse-id-or-nil id)))
-    (cond ((null parsed)
-           (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
-           "Invalid id parameter!")
+  (when (db:user-auth-token-valid-p auth-token)
+    (let ((parsed (parse-id-or-nil id)))
+      (cond ((null parsed)
+             (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
+             "Invalid id parameter!")
 
-          ((or (null component) (string= component ""))
-           (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
-           "No component parameter provided!")
+            ((or (null component) (string= component ""))
+             (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
+             "No component parameter provided!")
 
-          (t
-           (format nil "~S"
-                   (db:set (db:make-entity :id parsed)
-                           (intern (string-upcase component) :keyword)
-                           (let ((*read-eval* nil)) (read-from-string value)))))))
+            (t
+             (format nil "~S"
+                     (db:get (db:make-entity :id parsed)
+                             (intern (string-upcase component) :keyword))))))))
+
+(hunchentoot:define-easy-handler (api-set :uri "/set")
+    (auth-token id component value)
+  (setf (hunchentoot:content-type*) "text/plain")
+  (when (db:user-auth-token-valid-p auth-token)
+    (let ((parsed (parse-id-or-nil id)))
+      (cond ((null parsed)
+             (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
+             "Invalid id parameter!")
+
+            ((or (null component) (string= component ""))
+             (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
+             "No component parameter provided!")
+
+            (t
+             (format nil "~S"
+                     (db:set (db:make-entity :id parsed)
+                             (intern (string-upcase component) :keyword)
+                             (let ((*read-eval* nil)) (read-from-string value))))))))
   "")
 
-(hunchentoot:define-easy-handler (api-unset :uri "/unset") (id component)
+(hunchentoot:define-easy-handler (api-unset :uri "/unset") (auth-token id component)
   (setf (hunchentoot:content-type*) "text/plain")
-  (let ((parsed (parse-id-or-nil id)))
-    (cond ((null parsed)
-           (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
-           "Invalid id parameter!")
+  (when (db:user-auth-token-valid-p auth-token)
+    (let ((parsed (parse-id-or-nil id)))
+      (cond ((null parsed)
+             (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
+             "Invalid id parameter!")
 
-          ((or (null component) (string= component ""))
-           (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
-           "No component parameter provided!")
+            ((or (null component) (string= component ""))
+             (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
+             "No component parameter provided!")
 
-          (t
-           (db:unset (db:make-entity :id parsed)
-                     (intern (string-upcase component) :keyword)))))
+            (t
+             (db:unset (db:make-entity :id parsed)
+                       (intern (string-upcase component) :keyword))))))
   "")
 
-(hunchentoot:define-easy-handler (api-query :uri "/query") (components)
+(hunchentoot:define-easy-handler (api-query :uri "/query") (auth-token components)
   (setf (hunchentoot:content-type*) "text/plain")
-  (let ((components-vector (let ((*read-eval* nil))
-                             (handler-case (read-from-string components)
-                               (parse-error () :parse-error)))))
-    (cond ((not (vectorp components-vector))
-           (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
-           "Invalid components parameter!")
+  (when (db:user-auth-token-valid-p auth-token)
+    (let ((components-vector (let ((*read-eval* nil))
+                               (handler-case (read-from-string components)
+                                 (parse-error () :parse-error)))))
+      (cond ((not (vectorp components-vector))
+             (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
+             "Invalid components parameter!")
 
-          (t
-           (format nil "~S" (db:query components-vector))))))
+            (t
+             (format nil "~S" (db:query components-vector)))))))
 
 (hunchentoot:define-easy-handler (api-query-components :uri "/query-components")
-    (components)
+    (auth-token components)
   (setf (hunchentoot:content-type*) "text/plain")
-  (let ((components-vector (let ((*read-eval* nil))
-                             (handler-case (read-from-string components)
-                               (parse-error () :parse-error)))))
-    (cond ((not (vectorp components-vector))
-           (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
-           "Invalid components parameter!")
+  (when (db:user-auth-token-valid-p auth-token)
+    (let ((components-vector (let ((*read-eval* nil))
+                               (handler-case (read-from-string components)
+                                 (parse-error () :parse-error)))))
+      (cond ((not (vectorp components-vector))
+             (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
+             "Invalid components parameter!")
 
-          (t
-           (format nil "~S" (db:query-components components-vector))))))
+            (t
+             (format nil "~S" (db:query-components components-vector)))))))
 
 (hunchentoot:define-easy-handler (api-get-components :uri "/get-components")
-    (id)
+    (auth-token id)
   (setf (hunchentoot:content-type*) "text/plain")
-  (let ((parsed (parse-id-or-nil id)))
-    (cond ((null parsed)
-           (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
-           "Invalid id parameter!")
+  (when (db:user-auth-token-valid-p auth-token)
+    (let ((parsed (parse-id-or-nil id)))
+      (cond ((null parsed)
+             (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
+             "Invalid id parameter!")
 
-          (t
-           (format nil "~S"
-                   (db:get-components (db:make-entity :id parsed)))))))
+            (t
+             (format nil "~S"
+                     (db:get-components (db:make-entity :id parsed))))))))
 
 (hunchentoot:define-easy-handler (api-set-components :uri "/set-components")
-    (components-plist)
+    (auth-token components-plist)
   (setf (hunchentoot:content-type*) "text/plain")
-  (let ((components (let ((*read-eval* nil))
-                      (handler-case (read-from-string components-plist)
-                        (parse-error () :parse-error)))))
-    (cond ((not (listp components))
-           (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
-           "Invalid components-plist parameter!")
+  (when (db:user-auth-token-valid-p auth-token)
+    (let ((components (let ((*read-eval* nil))
+                        (handler-case (read-from-string components-plist)
+                          (parse-error () :parse-error)))))
+      (cond ((not (listp components))
+             (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
+             "Invalid components-plist parameter!")
 
-          (t
-           (db:set-components components)
-           ""))))
+            (t
+             (db:set-components components)
+             "")))))
 
-(hunchentoot:define-easy-handler (api-create :uri "/create") ()
+(hunchentoot:define-easy-handler (api-create :uri "/create") (auth-token)
   (setf (hunchentoot:content-type*) "text/plain")
-  (format nil "~S" (db:entity-id (db:create))))
+  (when (db:user-auth-token-valid-p auth-token)
+    (format nil "~S" (db:entity-id (db:create)))))
 
-(hunchentoot:define-easy-handler (api-delete :uri "/delete") (id)
+(hunchentoot:define-easy-handler (api-delete :uri "/delete") (auth-token id)
   (setf (hunchentoot:content-type*) "text/plain")
-  (let ((parsed (parse-id-or-nil id)))
-    (cond ((null parsed)
-           (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
-           "Invalid id parameter!")
-          (t (db:delete (db:make-entity :id parsed)))))
+  (when (db:user-auth-token-valid-p auth-token)
+    (let ((parsed (parse-id-or-nil id)))
+      (cond ((null parsed)
+             (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
+             "Invalid id parameter!")
+            (t (db:delete (db:make-entity :id parsed))))))
   "")
 
 (defun start ()

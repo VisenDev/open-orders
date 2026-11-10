@@ -22,11 +22,18 @@
 (defsystem "open-orders/client" 
   :author "Robert Burnett"
   :depends-on ("open-orders/common"
-               "drakma" "lparallel")
+               "drakma" "lparallel"
+               "lui" "url-rewrite")
   :build-operation program-op
   :build-pathname "open-orders-client"
   :entry-point "open-orders.client.main::main"
   :serial t
   :components
   ((:module "modules/client"
-    :components ((:file "main")))))
+    :components ((:file "fetch")
+                 (:file "main")))))
+
+(defsystem "open-orders"
+  :author "Robert Burnett"
+  :description "Business Order Management System"
+  :depends-on ("open-orders/client" "open-orders/server"))
