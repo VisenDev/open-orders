@@ -37,11 +37,11 @@
   (defun stop ()
     (values))
 
-  (defun fetch (parameters-alist result-handler)
+  (defun fetch (subdomain parameters-alist result-handler)
     (let ((url
             (#j:make-new
              #j:URL
-             *server-url*)))
+             (format nil "~a/~a" *server-url* subdomain))))
       (dolist (parameter parameters-alist)
         (#j:append
          (#j:searchParams url)

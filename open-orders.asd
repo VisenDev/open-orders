@@ -13,6 +13,9 @@
   :depends-on ("open-orders/common"
                "uiop" "cl-pass" "sqlite"
                "hunchentoot" "trivial-types")
+  :build-operation program-op
+  :build-pathname "open-orders-server"
+  :entry-point "open-orders.server.api:main"
   :serial t
   :components
   ((:module "modules/server"
@@ -26,7 +29,7 @@
                "lui" "url-rewrite")
   :build-operation program-op
   :build-pathname "open-orders-client"
-  :entry-point "open-orders.client.main::main"
+  :entry-point "open-orders.client.main:main"
   :serial t
   :components
   ((:module "modules/client"
