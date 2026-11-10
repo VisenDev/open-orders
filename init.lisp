@@ -1,6 +1,6 @@
 (asdf:initialize-source-registry
  `(:source-registry
    (:tree ,(uiop:getcwd))
-   :ignore-inherited-configuration))
+   :inherit-configuration))
 
 (asdf:load-system "open-orders")

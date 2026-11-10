@@ -24,10 +24,13 @@
     (lparallel:submit-task
      *channel*
      (lambda ()
-       (funcall result-handler
-                (drakma:http-request
-                 (format nil "~a/~a" *server-url* subdomain)
-                 :parameters parameters-alist))))))
+       (multiple-value-bind (result http-code)
+           (drakma:http-request
+            (format nil "~a/~a" *server-url* subdomain)
+            :parameters parameters-alist
+            :form-data t
+            :method :post)
+         (funcall result-handler result http-code))))))
 
 #+jscl
 (progn
