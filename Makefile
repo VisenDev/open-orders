@@ -18,4 +18,6 @@ open-orders-server:
 clean:
 	find . -type f -name '*.fasl' -exec trash {} \;
 	if [ -e ./open-orders ]; then trash open-orders; fi
+	if [ -e ./open-orders-server ]; then trash open-orders-server; fi
+	if [ -e ./open-orders-client ]; then trash open-orders-client; fi
 

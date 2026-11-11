@@ -60,7 +60,12 @@
                     username string primary key not null,
                     hash string,
                     auth_token string
-                  );"))
+                  );"
+                 "create table if not exists audit_log(
+                    id integer primary key not null,
+                    username string references user(username),
+                    description string
+                 );"))
     (sqlite:execute-non-query *db* sql))
   (values))
 
