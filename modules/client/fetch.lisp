@@ -3,7 +3,8 @@
   (:export
    #:start
    #:stop
-   #:fetch))
+   #:fetch
+   #:execute-result-handlers))
 (in-package #:open-orders.client.fetch)
 
 (defvar *server-url* "http://localhost:8888")
@@ -11,14 +12,20 @@
 #-jscl
 (progn
   (defvar *channel* nil)
+  (defvar *result-handlers* nil)
+  (defvar *result-lock*
+    (bt:make-lock "fetch-result-lock"))
 
   (defun start ()
-    (setf lparallel:*kernel* (lparallel:make-kernel 2))
-    (setf *channel* (lparallel:make-channel)))
+    (setf lparallel:*kernel* (lparallel:make-kernel 2)
+          *channel* (lparallel:make-channel)
+          *result-handlers* nil))
 
   (defun stop ()
+    (lparallel:end-kernel :wait t)
     (setf *channel* nil)
-    (lparallel:end-kernel :wait t))
+    (bt:with-lock-held (*result-lock*)
+      (setf *result-handlers* nil)))
 
   (defun fetch (subdomain parameters-alist result-handler)
     (lparallel:submit-task
@@ -30,14 +37,30 @@
             :parameters parameters-alist
             :form-data t
             :method :post)
-         (funcall result-handler result http-code))))))
+         (bt:with-lock-held (*result-lock*)
+           (push (lambda ()
+                   (funcall result-handler result http-code))
+                 *result-handlers*))))))
+
+  (defun execute-result-handlers ()
+    "Execute completed HTTP result handlers on the calling thread."
+    (let ((handlers
+            (bt:with-lock-held (*result-lock*)
+              (prog1 (nreverse *result-handlers*)
+                (setf *result-handlers* nil)))))
+      (dolist (handler handlers)
+        (funcall handler)))))
 
 #+jscl
 (progn
+  (defvar *result-handlers* nil)
+
   (defun start ()
+    (setf *result-handlers* nil)
     (values))
 
   (defun stop ()
+    (setf *result-handlers* nil)
     (values))
 
   (defun fetch (subdomain parameters-alist result-handler)
@@ -52,9 +75,21 @@
          (cdr parameter)))
 
       (#j:then
-       (#j:then
-        (#j:fetch (#j:toString url))
-        (lambda (response)
-          (#j:text response)))
-       (lambda (body)
-         (funcall result-handler body))))))
+       (#j:fetch (#j:toString url)
+                 (lisp-to-js
+                  (list :method "POST")))
+       (lambda (response)
+         (let ((code (#j:status response)))
+           (#j:then
+            (#j:text response)
+            (lambda (body)
+              (push (lambda ()
+                      (funcall result-handler body code))
+                    *result-handlers*))))))))
+
+  (defun execute-result-handlers ()
+    "Execute completed HTTP result handlers."
+    (let ((handlers (nreverse *result-handlers*)))
+      (setf *result-handlers* nil)
+      (dolist (handler handlers)
+        (funcall handler)))))
