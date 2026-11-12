@@ -63,13 +63,33 @@
                     hash string,
                     auth_token string
                   );"
-                 "create table if not exists audit_log(
-                    id integer primary key not null,
-                    category string,
-                    username string references user(username),
-                    description string
-                 );"))
+                 "create table audit_log (
+                    id integer primary key,
+                    timestamp text not null
+                    default (strftime('%y-%m-%dt%h:%m:%fz', 'now')),
+                    username text,
+                    ip_address text,
+                    category text not null,
+                    entity_id integer,
+                    details text
+                 );"
+                 ))
     (sqlite:execute-non-query *db* sql))
+  (values))
+
+;;; ==== AUDIT ====
+(fn (log (values)) (&key username (ip_address (hunchentoot:real-remote-addr))
+                         category entity_id details)
+  (let ((description (apply #'format nil description-fmt description-args)))
+    (cond
+      (auth-token
+       (sqlite:execute-non-query
+        *db*
+        "insert into audit_log(username, category, description) values(?, ?, ?);"
+        (user-lookup-auth-token-owner auth-token) category description))
+      (t (sqlite:execute-non-query
+          *db* "insert into audit_log(category, description) values(?, ?);"
+          category description))))
   (values))
 
 
@@ -122,22 +142,6 @@
 
 (fn (user-auth-token-valid-p boolean) ((auth-token string))
   (if (user-lookup-auth-token-owner auth-token) t nil))
-
-
-;;; ==== AUDIT ====
-
-(fn (log (values)) (auth-token category description-fmt &rest description-args)
-  (let ((description (apply #'format nil description-fmt description-args)))
-    (cond
-      (auth-token
-       (sqlite:execute-non-query
-        *db*
-        "insert into audit_log(username, category, description) values(?, ?, ?);"
-        (user-lookup-auth-token-owner auth-token) category description))
-      (t (sqlite:execute-non-query
-          *db* "insert into audit_log(category, description) values(?, ?);"
-          category description))))
-  (values))
 
 
 ;;; ==== ECS ====
