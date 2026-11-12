@@ -29,7 +29,8 @@
    #:user-update-password
    #:user-delete
    #:log
-   #:user-lookup-auth-token-owner))
+   #:user-lookup-auth-token-owner
+   #:auth-token->username))
 (in-package #:open-orders.server.db)
 
 (defvar *default-database-path* "open-orders.sqlite3")
@@ -66,7 +67,7 @@
                  "create table audit_log (
                     id integer primary key,
                     timestamp text not null
-                    default (strftime('%y-%m-%dt%h:%m:%fz', 'now')),
+                    default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
                     username text,
                     ip_address text,
                     category text not null,
@@ -80,16 +81,10 @@
 ;;; ==== AUDIT ====
 (fn (log (values)) (&key username (ip_address (hunchentoot:real-remote-addr))
                          category entity_id details)
-  (let ((description (apply #'format nil description-fmt description-args)))
-    (cond
-      (auth-token
-       (sqlite:execute-non-query
-        *db*
-        "insert into audit_log(username, category, description) values(?, ?, ?);"
-        (user-lookup-auth-token-owner auth-token) category description))
-      (t (sqlite:execute-non-query
-          *db* "insert into audit_log(category, description) values(?, ?);"
-          category description))))
+  (sqlite:execute-non-query
+   *db* "insert into audit_log(username, ip_address, category, entity_id, details)
+         values(?, ?, ?, ?, ?);"
+   username ip_address category entity_id details)
   (values))
 
 
@@ -136,7 +131,7 @@
        auth-token username)
       auth-token)))
 
-(fn (user-lookup-auth-token-owner string) ((auth-token string))
+(fn (auth-token->username string) ((auth-token string))
   (sqlite:execute-single
    *db* "select username from user where auth_token = ?;" auth-token))
 
