@@ -93,12 +93,16 @@
                       :height (lui:grow)
                       :padding (lui:units 1))
     (draw-toplevel-controls)
+
+    ;; tab row
     (lui:row (lui:opt :gap (lui:units 1)
                       :padding (lui:units 1))
       (when (lui:tab "Customers")
         (navigate 'customers/list :auth-token auth-token))
-      (when (lui:tab "Home")
+      (when (lui:tab "Home" (lui:opt :selected-p t))
         (navigate 'app-home :auth-token auth-token)))
+
+    ;; content
     (lui:label "Hello from app")))
 
 (defpage customers/list (auth-token) ()
@@ -106,6 +110,12 @@
                       :height (lui:grow)
                       :padding (lui:units 1))
     (draw-toplevel-controls)
+    (lui:row (lui:opt :gap (lui:units 1)
+                      :padding (lui:units 1))
+      (when (lui:tab "Customers" (lui:opt :selected-p t))
+        (navigate 'customers/list :auth-token auth-token))
+      (when (lui:tab "Home")
+        (navigate 'app-home :auth-token auth-token)))
     (lui:label "Customers Page")))
 
 (defun parse (http-result-body)
