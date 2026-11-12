@@ -1,6 +1,6 @@
 (uiop:define-package #:open-orders.server.db
   (:use #:cl #:open-orders.common.fn)
-  (:shadow #:set #:get #:delete)
+  (:shadow #:set #:get #:delete #:log)
   (:export
    #:connect
    #:disconnect
@@ -27,7 +27,9 @@
    #:user-get-auth-token
    #:user-auth-token-valid-p
    #:user-update-password
-   #:user-delete))
+   #:user-delete
+   #:log
+   #:user-lookup-auth-token-owner))
 (in-package #:open-orders.server.db)
 
 (defvar *default-database-path* "open-orders.sqlite3")
@@ -63,11 +65,15 @@
                   );"
                  "create table if not exists audit_log(
                     id integer primary key not null,
+                    category string,
                     username string references user(username),
                     description string
                  );"))
     (sqlite:execute-non-query *db* sql))
   (values))
+
+
+;;; ==== USER ====
 
 (fn (user-password-correct-p boolean) ((username string) (password string))
   (let ((hash (sqlite:execute-single
@@ -110,11 +116,31 @@
        auth-token username)
       auth-token)))
 
+(fn (user-lookup-auth-token-owner string) ((auth-token string))
+  (sqlite:execute-single
+   *db* "select username from user where auth_token = ?;" auth-token))
+
 (fn (user-auth-token-valid-p boolean) ((auth-token string))
-  (let ((username
-          (sqlite:execute-single
-           *db* "select username from user where auth_token = ?;" auth-token)))
-    (if username t nil)))
+  (if (user-lookup-auth-token-owner auth-token) t nil))
+
+
+;;; ==== AUDIT ====
+
+(fn (log (values)) (auth-token category description-fmt &rest description-args)
+  (let ((description (apply #'format nil description-fmt description-args)))
+    (cond
+      (auth-token
+       (sqlite:execute-non-query
+        *db*
+        "insert into audit_log(username, category, description) values(?, ?, ?);"
+        (user-lookup-auth-token-owner auth-token) category description))
+      (t (sqlite:execute-non-query
+          *db* "insert into audit_log(category, description) values(?, ?);"
+          category description))))
+  (values))
+
+
+;;; ==== ECS ====
 
 (defstruct entity id)
 

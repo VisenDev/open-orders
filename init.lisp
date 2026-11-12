@@ -4,5 +4,7 @@
    :inherit-configuration))
 
 (asdf:load-system "open-orders")
-(open-orders.server.api:start)
+(handler-case (open-orders.server.api:start)
+  (error (e)
+    (format nil "~a" e)))
 (open-orders.client.main:main)

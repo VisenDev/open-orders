@@ -14,9 +14,16 @@
 (hunchentoot:define-easy-handler (api-login :uri "/login") (username password)
   (setf (hunchentoot:content-type*) "text/plain")
   (cond ((db:user-password-correct-p username password)
+         (db:log
+          nil "login_success" "(:ip ~S :username ~S)"
+          (hunchentoot:real-remote-addr) username)
+         
          (format nil "~S" (db:user-get-auth-token username password)))
 
         (t
+         (db:log
+          nil "login_failure" "(:ip ~S :username ~S)"
+          (hunchentoot:real-remote-addr) username)
          (setf (hunchentoot:return-code*)
                hunchentoot:+HTTP-AUTHORIZATION-REQUIRED+)
          "")))
@@ -153,24 +160,40 @@
   (setf (hunchentoot:content-type*) "text/plain")
   (cond
     ((db:user-auth-token-valid-p auth-token)
-     (format nil "~S" (db:entity-id (db:create))))
-    (t (setf (hunchentoot:return-code*) hunchentoot:+HTTP-FORBIDDEN+))))
+     (let ((id (db:entity-id (db:create))))
+       (db:log
+        auth-token "create" "(:ip ~S :new-id ~S)"
+        (hunchentoot:real-remote-addr) id)
+       (format nil "~S" id)))
+    (t (setf (hunchentoot:return-code*) hunchentoot:+HTTP-FORBIDDEN+)
+       (db:log auth-token "unauthorized"
+               "(:ip ~S :action \"create\")"
+               (hunchentoot:real-remote-addr)))))
 
 (hunchentoot:define-easy-handler (api-delete :uri "/delete") (auth-token id)
   (setf (hunchentoot:content-type*) "text/plain")
   (cond
+
     ((db:user-auth-token-valid-p auth-token)
      (let ((parsed (parse-id-or-nil id)))
        (cond ((null parsed)
               (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
               "Invalid id parameter!")
-             (t (db:delete (db:make-entity :id parsed))))))
-        (t (setf (hunchentoot:return-code*) hunchentoot:+HTTP-FORBIDDEN+)))
+             (t (db:delete (db:make-entity :id parsed)))))
+     (db:log auth-token "delete" "(:ip ~S :id ~S)"
+             (hunchentoot:real-remote-addr) id))
+
+    ;; else
+    (t (setf (hunchentoot:return-code*) hunchentoot:+HTTP-FORBIDDEN+)
+       (db:log auth-token "unauthorized"
+               "(:ip ~S :id ~S :action \"delete\")"
+               (hunchentoot:real-remote-addr) id)))
   "")
 
 (let (acceptor)
   (defun start ()
     (db:connect)
+    (db:log nil "system" "connect")
     (when acceptor
       (hunchentoot:stop acceptor))
     (setf acceptor (make-instance 'hunchentoot:easy-acceptor :port 8888))
@@ -179,6 +202,7 @@
 
   (defun stop ()
     (db:disconnect)
+    (db:log nil "system" "disconnect")
     (when acceptor
       (hunchentoot:stop acceptor))
     (setf acceptor nil))
