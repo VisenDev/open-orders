@@ -1,5 +1,5 @@
-(defpackage #:open-orders.client.main
-  (:use #:cl #:open-orders.client.fetch)
+(uiop:define-package #:open-orders.client.main
+  (:use #:cl #:open-orders.client.api #:open-orders.client.fetch)
   (:export
    #:main))
 (in-package #:open-orders.client.main)
@@ -69,13 +69,12 @@
 
         (when (lui:button "login")
           (setf status :loading)
-          (fetch "login"
-                 (list (cons "username" username)
-                       (cons "password" password))
-                 (lambda (result code)
-                   (cond ((= code 200)
-                          (redirect 'app-home :auth-token (parse result)))
-                         (t (setf status :failed)))))))
+          (api-login
+           username password
+           (lambda (result code)
+             (cond ((= code 200)
+                    (redirect 'app-home :auth-token result))
+                   (t (setf status :failed)))))))
 
       (when (eq status :loading)
         (lui:label "Loading...")))))
@@ -122,29 +121,23 @@
     (lui:row (lui:opt :gap (lui:units 1)
                       :padding (lui:units 1))
       (when (lui:button "New Customer")
-        (fetch "create" (list (cons "auth-token" auth-token))
-               (lambda (result http-code)
-                 (let ((id (parse result)))
-                   (when (and (= http-code 200) (integerp id))
-                     (fetch "set" (list (cons "auth-token" auth-token)
-                                        (cons "component" ":customer-p")
-                                        (cons "value" "t"))
-                            (lambda (result http-code)
-                              (declare (ignore result http-code))))))))))
+        (api-create
+         auth-token
+         (lambda (id code)
+           (when (and id (= 200 code))
+             (api-set auth-token id :customer-p t))))))
 
     (when (and loading-p (null customers-plist))
       (lui:spinner))
 
     (when (and (null customers-plist) (not loading-p))
       (setf loading-p t)
-      (fetch "query-components" (list (cons "auth-token" auth-token)
-                                      (cons "components" "#(:customer-p)"))
-             (lambda (result http-code)
-               (setf loading-p nil)
-               (when (= 200 http-code)
-                 (setf customers-plist (or (parse result) "<error>"))))))
-    ;; (lui:label "Customers Page")
-    ))
+      (api-query-components
+       auth-token #(:customer-p)
+       (lambda (result http-code)
+         (setf loading-p nil)
+         (when (= 200 http-code)
+           (setf customers-plist (or result "<error>"))))))))
 
 (defun parse (http-result-body)
   (let ((*read-eval* nil))

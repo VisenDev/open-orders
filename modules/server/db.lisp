@@ -65,7 +65,7 @@
                     hash string,
                     auth_token string
                   );"
-                 "create table audit_log (
+                 "create table if not exists audit_log (
                     id integer primary key,
                     timestamp text not null
                     default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -136,8 +136,9 @@
   (sqlite:execute-single
    *db* "select username from user where auth_token = ?;" auth-token))
 
-(fn (user-auth-token-valid-p boolean) ((auth-token string))
-  (if (auth-token->username auth-token) t nil))
+(fn (user-auth-token-valid-p boolean) ((auth-token (or string null)))
+  (when auth-token
+    (if (auth-token->username auth-token) t nil)))
 
 
 ;;; ==== ECS ====

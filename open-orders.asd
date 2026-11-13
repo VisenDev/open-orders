@@ -34,6 +34,7 @@
   :components
   ((:module "modules/client"
     :components ((:file "fetch")
+                 (:file "api")
                  (:file "main")))))
 
 (defsystem "open-orders"

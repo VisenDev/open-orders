@@ -7,4 +7,4 @@
 (handler-case (open-orders.server.api:start)
   (error (e)
     (format nil "~a" e)))
-(open-orders.client.main:main)
+;; (open-orders.client.main:main)
