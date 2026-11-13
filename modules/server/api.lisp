@@ -11,6 +11,11 @@
   (handler-case (parse-integer id)
     (parse-error () nil)))
 
+(defun read-from-string-or-nil (string)
+  (let ((*read-eval* nil))
+    (handler-case (read-from-string string)
+      (parse-error () nil))))
+
 (hunchentoot:define-easy-handler (api-login :uri "/login") (username password)
   (setf (hunchentoot:content-type*) "text/plain")
   (cond ((db:user-password-correct-p username password)
@@ -159,6 +164,41 @@
                :details "failure: not authorized")
        "")))
 
+(hunchentoot:define-easy-handler (api-query-ext :uri "/query-ext")
+    (auth-token components sort-by offset limit)
+  (setf (hunchentoot:content-type*) "text/plain")
+  (cond
+    ((db:user-auth-token-valid-p auth-token)
+     (let ((components-vector (let ((*read-eval* nil))
+                                (handler-case (read-from-string components)
+                                  (parse-error () :parse-error))))
+           (sort-by* (read-from-string-or-nil sort-by))
+           (limit* (read-from-string-or-nil limit))
+           (offset* (read-from-string-or-nil offset)))
+       (cond ((or (not (vectorp components-vector))
+                  (not (keywordp sort-by*))
+                  (not (integerp limit*))
+                  (not (integerp offset*)))
+              (setf (hunchentoot:return-code*) hunchentoot:+HTTP-BAD-REQUEST+)
+              (db:log :username (db:auth-token->username auth-token)
+                      :category "query-ext"
+                      :details "failure: invalid parameter")
+              "Invalid components parameter!")
+
+             (t
+              (db:log :username (db:auth-token->username auth-token)
+                      :category "query-ext"
+                      :details "success")
+              (format nil "~S" (db:query-ext components-vector
+                                             :sort-by sort-by*
+                                             :limit limit*
+                                             :offset offset*))))))
+    (t (setf (hunchentoot:return-code*) hunchentoot:+HTTP-FORBIDDEN+)
+       (db:log :username (db:auth-token->username auth-token)
+               :category "query-ext"
+               :details "failure: not authorized")
+       "")))
+
 (hunchentoot:define-easy-handler (api-query-components :uri "/query-components")
     (auth-token components)
   (setf (hunchentoot:content-type*) "text/plain")
@@ -179,11 +219,11 @@
                       :category "query-components"
                       :details "success")
               (format nil "~S" (db:query-components components-vector))))))
-        (t (setf (hunchentoot:return-code*) hunchentoot:+HTTP-FORBIDDEN+)
-           (db:log :username (db:auth-token->username auth-token)
-                   :category "query-components"
-                   :details "failure: not authorized")
-           "")))
+    (t (setf (hunchentoot:return-code*) hunchentoot:+HTTP-FORBIDDEN+)
+       (db:log :username (db:auth-token->username auth-token)
+               :category "query-components"
+               :details "failure: not authorized")
+       "")))
 
 (hunchentoot:define-easy-handler (api-get-components :uri "/get-components")
     (auth-token id)

@@ -105,23 +105,54 @@
     ;; content
     (lui:label "Hello from app")))
 
-(defpage customers/list (auth-token) ()
+(defpage customers/list (auth-token) (loading-p customers-plist)
   (lui:panel (lui:opt :width (lui:grow)
                       :height (lui:grow)
                       :padding (lui:units 1))
     (draw-toplevel-controls)
+
+    ;; tab bar
     (lui:row (lui:opt :gap (lui:units 1)
                       :padding (lui:units 1))
       (when (lui:tab "Customers" (lui:opt :selected-p t))
         (navigate 'customers/list :auth-token auth-token))
       (when (lui:tab "Home")
         (navigate 'app-home :auth-token auth-token)))
-    (lui:label "Customers Page")))
+
+    (lui:row (lui:opt :gap (lui:units 1)
+                      :padding (lui:units 1))
+      (when (lui:button "New Customer")
+        (fetch "create" (list (cons "auth-token" auth-token))
+               (lambda (result http-code)
+                 (let ((id (parse result)))
+                   (when (and (= http-code 200) (integerp id))
+                     (fetch "set" (list (cons "auth-token" auth-token)
+                                        (cons "component" ":customer-p")
+                                        (cons "value" "t"))
+                            (lambda (result http-code)
+                              (declare (ignore result http-code))))))))))
+
+    (when (and loading-p (null customers-plist))
+      (lui:spinner))
+
+    (when (and (null customers-plist) (not loading-p))
+      (setf loading-p t)
+      (fetch "query-components" (list (cons "auth-token" auth-token)
+                                      (cons "components" "#(:customer-p)"))
+             (lambda (result http-code)
+               (setf loading-p nil)
+               (when (= 200 http-code)
+                 (setf customers-plist (or (parse result) "<error>"))))))
+    ;; (lui:label "Customers Page")
+    ))
 
 (defun parse (http-result-body)
   (let ((*read-eval* nil))
-    (read-from-string http-result-body)))
-
+    (handler-case 
+        (read-from-string http-result-body)
+      (parse-error (e)
+        (print e)
+        nil))))
 
 (defparameter *customer* #(:name :address
                            :primary-contact-first-name

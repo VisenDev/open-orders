@@ -30,7 +30,8 @@
    #:user-delete
    #:log
    #:user-lookup-auth-token-owner
-   #:auth-token->username))
+   #:auth-token->username
+   #:query-ext))
 (in-package #:open-orders.server.db)
 
 (defvar *default-database-path* "open-orders.sqlite3")
@@ -136,7 +137,7 @@
    *db* "select username from user where auth_token = ?;" auth-token))
 
 (fn (user-auth-token-valid-p boolean) ((auth-token string))
-  (if (user-lookup-auth-token-owner auth-token) t nil))
+  (if (auth-token->username auth-token) t nil))
 
 
 ;;; ==== ECS ====
@@ -218,6 +219,37 @@
     (declare (dynamic-extent query-results))
     (dolist (id query-results)
       (vector-push-extend (make-entity :id (first id)) result))
+    result))
+
+(fn (query-ext (vector entity)) ((components (vector keyword))
+                                 &key
+                                 ((sort-by keyword))
+                                 ((offset integer))
+                                 ((limit integer)))
+  (let* ((names (mapcar #'symbol-name
+                        (remove-duplicates (coerce components 'list))))
+         (sql (format nil
+                      "select e.id
+                           from entity e
+                           left join component s
+                             on s.entity = e.id and s.name = ?
+                           where (select count(distinct c.name)
+                                  from component c
+                                  where c.entity = e.id
+                                    and c.name in (~{~a~^,~}))
+                                 = ?
+                           order by s.value, e.id
+                           limit ? offset ?;"
+                      (loop :repeat (length names) :collect "?")))
+         (args (nconc (list (symbol-name sort-by))
+                      names
+                      (list (length names) limit offset)))
+         (rows (apply #'sqlite:execute-to-list *db* sql args))
+         (result (make-array (length rows) :element-type 'entity
+                                           :fill-pointer 0 :adjustable t
+                                           :initial-element (make-entity))))
+    (dolist (row rows)
+      (vector-push-extend (make-entity :id (first row)) result))
     result))
 
 (fn (get-components trivial-types:property-list) ((entity entity))
