@@ -59,7 +59,7 @@
                           :details "success")
                   (format nil "~S"
                           (db:get (db:make-entity :id parsed)
-                                  (intern (string-upcase component) :keyword))))))
+                                  (read-from-string-or-nil component))))))
           (t (setf (hunchentoot:return-code*) hunchentoot:+HTTP-FORBIDDEN+)
              (db:log :username (db:auth-token->username auth-token)
                      :category "get"
@@ -96,7 +96,7 @@
               (format
                nil "~S"
                (db:set (db:make-entity :id parsed)
-                       (intern (string-upcase component) :keyword)
+                       (read-from-string-or-nil component)
                        (let ((*read-eval* nil)) (read-from-string value)))))))
       (t (setf (hunchentoot:return-code*) hunchentoot:+HTTP-FORBIDDEN+)
          (db:log :username (db:auth-token->username auth-token)
@@ -131,7 +131,7 @@
                       :entity_id parsed
                       :details "success")
               (db:unset (db:make-entity :id parsed)
-                        (intern (string-upcase component) :keyword)))))
+                        (read-from-string-or-nil component)))))
       (t (setf (hunchentoot:return-code*) hunchentoot:+HTTP-FORBIDDEN+)
          (db:log :username (db:auth-token->username auth-token)
                  :category "unset"

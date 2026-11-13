@@ -1,5 +1,7 @@
 (uiop:define-package #:open-orders.client.main
-  (:use #:cl #:open-orders.client.api #:open-orders.client.fetch)
+  (:use #:cl #:open-orders.client.api
+        #:open-orders.client.fetch
+        #:open-orders.common.fn)
   (:export
    #:main))
 (in-package #:open-orders.client.main)
@@ -77,57 +79,75 @@
                    (t (setf status :failed)))))))
 
       (when (eq status :loading)
-        (lui:label "Loading...")))))
+        (lui:spinner)
+        (lui:request-frame)))))
 
-(defun draw-toplevel-controls ()
-  (lui:row (lui:opt :gap (lui:units 1)
-                    :padding (lui:units 1))
-    (when (lui:button "Back" (lui:opt :disabled-p (null *history*)))
-      (back))
-    (when (lui:button "Logout" )
-      (redirect 'login))))
+(fn draw-toplevel-controls (auth-token (selected (member :home :customers)))
+  (lui:row (lui:opt :width (lui:grow))
+      (when (lui:tab "Home" (lui:opt :selected-p (eq selected :home)))
+        (navigate 'app-home :auth-token auth-token))
+      (when (lui:tab "Customers" (lui:opt :selected-p (eq selected :customers)))
+        (navigate 'customers/list :auth-token auth-token))
+      (lui:spacer (lui:opt :width (lui:grow)))
+      (when (lui:button "Logout")
+        (redirect 'login))))
 
 (defpage app-home (auth-token) ()
   (lui:panel (lui:opt :width (lui:grow)
                       :height (lui:grow)
                       :padding (lui:units 1))
-    (draw-toplevel-controls)
-
+    
+    (draw-toplevel-controls auth-token :home)
     ;; tab row
-    (lui:row (lui:opt :gap (lui:units 1)
-                      :padding (lui:units 1))
-      (when (lui:tab "Customers")
-        (navigate 'customers/list :auth-token auth-token))
-      (when (lui:tab "Home" (lui:opt :selected-p t))
-        (navigate 'app-home :auth-token auth-token)))
 
     ;; content
     (lui:label "Hello from app")))
 
-(defpage customers/list (auth-token) (loading-p customers-plist)
+(defpage customers/edit (auth-token id) (customer-plist loading-p)
   (lui:panel (lui:opt :width (lui:grow)
                       :height (lui:grow)
                       :padding (lui:units 1))
-    (draw-toplevel-controls)
+    (when (and (null customer-plist) (not loading-p))
+      (setf loading-p t)
+      (api-get-components auth-token id
+                          (lambda (result http-code)
+                            (setf loading-p nil)
+                            (assert result)
+                            (assert (= http-code 200))
+                            (setf customer-plist result))))
+    (draw-toplevel-controls auth-token :customers)
 
-    ;; tab bar
-    (lui:row (lui:opt :gap (lui:units 1)
-                      :padding (lui:units 1))
-      (when (lui:tab "Customers" (lui:opt :selected-p t))
-        (navigate 'customers/list :auth-token auth-token))
-      (when (lui:tab "Home")
-        (navigate 'app-home :auth-token auth-token)))
+    (when loading-p
+      (lui:request-frame))))
 
-    (lui:row (lui:opt :gap (lui:units 1)
-                      :padding (lui:units 1))
+(defpage customers/list (auth-token) (loading-p customers-plist)
+  (lui:panel (lui:opt :width (lui:grow)
+                      :height (lui:grow)
+                      :padding (lui:units 1)
+                      :gap (lui:units 1))
+    (draw-toplevel-controls auth-token :customers)
+    (lui:row ()
+      (when (lui:button "Refresh")
+        (setf loading-p t)
+        (api-query-components auth-token #(:customer-p)
+                              (lambda (result http-code)
+                                (print result)
+                                (when (= http-code 200)
+                                  (setf customers-plist result)
+                                  (setf loading-p nil)))))
       (when (lui:button "New Customer")
         (api-create
          auth-token
          (lambda (id code)
-           (when (and id (= 200 code))
-             (api-set auth-token id :customer-p t))))))
+           (assert (and id (= 200 code)))
+           (api-set auth-token id :customer-p t)
+           (api-set auth-token id :name "bob")
+           (navigate 'customers/edit :auth-token auth-token :id id)))))
 
-    (when (and loading-p (null customers-plist))
+    (lui:label (format nil "~a" customers-plist))
+
+    (when loading-p
+      (lui:request-frame)
       (lui:spinner))
 
     (when (and (null customers-plist) (not loading-p))
@@ -147,7 +167,7 @@
         (print e)
         nil))))
 
-(defparameter *customer* #(:name :address
+(defparameter *customer* #(:customer-p :name :address
                            :primary-contact-first-name
                            :primary-contact-last-name
                            :primary-contact-email
