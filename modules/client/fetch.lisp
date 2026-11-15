@@ -1,10 +1,13 @@
 (defpackage #:open-orders.client.fetch
-  (:use #:cl)
+  (:use #:cl #:open-orders.common.fn)
   (:export
    #:start
    #:stop
    #:fetch
-   #:execute-result-handlers))
+   #:execute-result-handlers
+   #:with-fetch
+   #:encode-parameters
+   #:fetch*))
 (in-package #:open-orders.client.fetch)
 
 (defvar *server-url* "http://localhost:8888")
@@ -27,7 +30,7 @@
     (bt:with-lock-held (*result-lock*)
       (setf *result-handlers* nil)))
 
-  (defun fetch (subdomain parameters-alist result-handler)
+  (defun %fetch (subdomain parameters-alist result-handler)
     (lparallel:submit-task
      *channel*
      (lambda ()
@@ -63,7 +66,7 @@
     (setf *result-handlers* nil)
     (values))
 
-  (defun fetch (subdomain parameters-alist result-handler)
+  (defun %fetch (subdomain parameters-alist result-handler)
     (let ((url
             (#j:make-new
              #j:URL
@@ -93,3 +96,49 @@
       (setf *result-handlers* nil)
       (dolist (handler handlers)
         (funcall handler)))))
+
+
+(defun encode-parameters (parameters)
+  (unless (evenp (length parameters))
+    (error "Expected keyword/value pairs."))
+  (sort
+   (loop :for (name value) :on parameters :by #'cddr
+         :do (unless (keywordp name)
+              (error "Expected a keyword, got ~S." name))
+         :collect
+         (cons (string-downcase (symbol-name name))
+               (if (stringp value)
+                   (copy-seq value)
+                   (with-standard-io-syntax
+                     (write-to-string value)))))
+   #'string< :key #'car))
+
+(fn (parse t) ((http-result (or string null)))
+  (when (stringp http-result)
+    (let ((*read-eval* nil))
+      (handler-case 
+          (read-from-string http-result)
+        (parse-error (e)
+          (print e)
+          nil)))))
+
+(defun fetch (endpoint callback &rest parameters)
+  (%fetch endpoint
+          (encode-parameters parameters)
+          (lambda (raw-result code)
+            (funcall callback (parse raw-result) code))))
+
+(defun fetch* (endpoint &rest parameters)
+  "fetch except results are discarded"
+  (apply #'fetch endpoint
+           (lambda (_ __) (declare (ignore _ __)))
+           parameters))
+
+(defmacro with-fetch ((endpoint &rest parameters)
+                      (http-result code)
+                      &body body)
+  `(fetch ,endpoint
+          (lambda (,http-result ,code)
+            (declare (ignorable ,http-result ,code))
+            ,@body)
+          ,@parameters))

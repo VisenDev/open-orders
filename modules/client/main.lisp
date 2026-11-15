@@ -1,64 +1,50 @@
 (uiop:define-package #:open-orders.client.main
-  (:use #:cl #:open-orders.client.api
+  (:use #:cl 
+        #:open-orders.client.cache
         #:open-orders.client.fetch
         #:open-orders.common.fn)
   (:export
    #:main))
 (in-package #:open-orders.client.main)
 
-(defparameter *page-state* (make-hash-table :test 'equalp))
-(defparameter *history* nil)
-(defparameter *current-page* nil)
+(def (*page* symbol) 'login "Name of active draw function (page)")
+(def (*page-args* list) nil "Args for the *page* function")
+(def (*history* list) nil "List of (cons *page* *page-args*) for prior active pages")
 
-(defmacro defpage (name parameters static-variables &body body)
-  (let ((hash-table-handle (gensym)))
-    `(defun ,name (&rest parameters &key ,@parameters)
-       (declare (ignorable ,@parameters))
-       (unless (gethash (cons ',name parameters) *page-state*)
-         (setf (gethash (cons ',name parameters) *page-state*) (make-hash-table)))
-       
-       (let ((,hash-table-handle (gethash (cons ',name parameters)
-                                          *page-state*)))
-         (declare (ignorable ,hash-table-handle))
+(fn (page-reset (values)) ()
+  (setf *page* 'login)
+  (setf *page-args* nil)
+  (setf *history* nil)
+  (values))
 
-         ,@(mapcan (lambda (form)
-                   (when (listp form)
-                     (list `(unless (gethash ',(first form) ,hash-table-handle)
-                              (setf (gethash ',(first form) ,hash-table-handle)
-                                    ,(second form))))))
-                   static-variables)
-         (symbol-macrolet
-             ,(mapcar (lambda (var)
-                        (if (listp var)
-                            (list (first var)
-                                  `(gethash ',(first var) ,hash-table-handle))
-                            (list var `(gethash ',var ,hash-table-handle))))
-               static-variables)
-           ,@body)))))
+(fn (page-redirect (values)) ((log-history-p boolean) (new-page symbol) &rest args)
+  (when log-history-p
+    (push (cons *page* *page-args*) *history* ))
+  (setf *page* new-page)
+  (setf *page-args* args)
+  (values))
 
-(defun navigate (target &rest parameters)
-  "Navigate to page, saving current page and its static variables"
-  (when *current-page*
-    (push *current-page* *history*))
-  (setf *current-page* (cons target parameters)))
-
-(defun redirect (target &rest parameters)
-  "Navigate to page without saving current page in history or its static variables"
-  (setf (gethash *current-page* *page-state*) nil)
-  (setf *current-page* (cons target parameters)))
-
-(defun back ()
+(fn (page-back (values)) ()
   (when *history*
-    (setf *current-page* (pop *history*))))
+    (let ((entry (pop *history*)))
+      (setf *page* (car entry))
+      (setf *page-args* (cdr entry))))
+  (values))
 
+(def (*auth-token* (or string null)) nil)
+(def (*login-status* (member :waiting :loading :done :failed)) :waiting)
 
-(defpage login () ((status :waiting))
+(fn (login-reset (values)) ()
+  (setf *auth-token* nil)
+  (setf *login-status* :waiting))
+
+(defun login ()
   (let (username
         password)
     (lui:panel (lui:opt :width (lui:grow)
                         :height (lui:grow)
                         :padding (lui:units 1))
-      (when (eq status :failed)
+      (when (eq *login-status* :failed)
         (lui:label "Incorrect username or password."))
       (lui:panel (lui:opt :padding (lui:units 1))
         (lui:table (lui:opt :padding (lui:units 1))
@@ -70,157 +56,120 @@
             (setf password (lui:text-field (lui:opt :password-p t)))))
 
         (when (lui:button "login")
-          (setf status :loading)
-          (api-login
-           username password
-           (lambda (result code)
-             (cond ((= code 200)
-                    (redirect 'app-home :auth-token result))
-                   (t (setf status :failed)))))))
+          (setf *login-status* :loading)
+          (with-fetch ("login" :username username
+                               :password password)
+              (result code)
+            (cond ((= code 200)
+                   (setf *login-status* :done)
+                   (setf *auth-token* result)
+                   (page-redirect nil 'home))
+                  (t (setf *login-status* :failed))))))
 
-      (when (eq status :loading)
+      (when (eq *login-status* :loading)
         (lui:spinner)
         (lui:request-frame)))))
 
-(fn draw-toplevel-controls (auth-token (selected (member :home :customers)))
+(fn draw-toplevel-controls ((selected (member :home :customers)))
   (lui:row (lui:opt :width (lui:grow))
       (when (lui:tab "Home" (lui:opt :selected-p (eq selected :home)))
-        (navigate 'app-home :auth-token auth-token))
+        (page-redirect nil 'home))
       (when (lui:tab "Customers" (lui:opt :selected-p (eq selected :customers)))
-        (navigate 'customers/list :auth-token auth-token))
+        (page-redirect nil 'customers/list))
       (lui:spacer (lui:opt :width (lui:grow)))
       (when (lui:button "Logout")
-        (redirect 'login))))
+        (page-reset)
+        (login-reset))))
 
-(defpage app-home (auth-token) ()
+(defun home ()
   (lui:panel (lui:opt :width (lui:grow)
                       :height (lui:grow)
                       :padding (lui:units 1))
     
-    (draw-toplevel-controls auth-token :home)
+    (draw-toplevel-controls :home)
     ;; tab row
 
     ;; content
     (lui:label "Hello from app")))
 
-(defpage customers/edit (auth-token id) (customer-plist loading-p)
-  (lui:panel (lui:opt :width (lui:grow)
-                      :height (lui:grow)
-                      :padding (lui:units 1))
-    (when (and (null customer-plist) (not loading-p))
-      (setf loading-p t)
-      (api-get-components auth-token id
-                          (lambda (result http-code)
-                            (setf loading-p nil)
-                            (assert result)
-                            (assert (= http-code 200))
-                            (setf customer-plist result))))
-    (draw-toplevel-controls auth-token :customers)
+(defun customers/edit (id)
+ (lui:panel (lui:opt :width (lui:grow)
+                     :height (lui:grow)
+                     :padding (lui:units 1))
+   ;; (when (and (null customer-plist) (not loading-p))
+   ;;   (setf loading-p t)
+   ;;   (api-get-components auth-token id
+   ;;                       (lambda (result http-code)
+   ;;                         (setf loading-p nil)
+   ;;                         (assert result)
+   ;;                         (assert (= http-code 200))
+   ;;                         (setf customer-plist result))))
+   ;; (draw-toplevel-controls nil)
 
-    (when loading-p
-      (lui:request-frame))))
+   ;; (when loading-p
+   ;;   (lui:request-frame))
+   ))
 
-(defpage customers/list (auth-token) (loading-p customers-plist)
+(defun customers/list ()
   (lui:panel (lui:opt :width (lui:grow)
                       :height (lui:grow)
                       :padding (lui:units 1)
                       :gap (lui:units 1))
-    (draw-toplevel-controls auth-token :customers)
+    (draw-toplevel-controls :customers)
+
     (lui:row ()
-      (when (lui:button "Refresh")
-        (setf loading-p t)
-        (api-query-components auth-token #(:customer-p)
-                              (lambda (result http-code)
-                                (print result)
-                                (when (= http-code 200)
-                                  (setf customers-plist result)
-                                  (setf loading-p nil)))))
       (when (lui:button "New Customer")
-        (api-create
-         auth-token
-         (lambda (id code)
-           (assert (and id (= 200 code)))
-           (api-set auth-token id :customer-p t)
-           (api-set auth-token id :name "bob")
-           (navigate 'customers/edit :auth-token auth-token :id id)))))
+        (with-fetch ("create" :auth-token *auth-token*)
+            (id code)
+          (assert (and id (= 200 code)))
+          (fetch* "set" :auth-token *auth-token*
+                        :id id :component ":customer-p" :value "t")
+          (fetch* "set" :auth-token *auth-token*
+                        :id id :component ":name" :value "bob")
+          (invalidate-cache))))
 
-    (lui:label (format nil "~a" customers-plist))
+    (let ((customers (cached-fetch "query-components"
+                                   :auth-token *auth-token*
+                                   :components "#(:customer-p)")))
+      (if customers
+          (loop :for i :from 0
+                :for customer :across customers
+                :do
+                   (lui:label (format nil "~a" customer) (lui:opt :id i)))
+          (lui:spinner)))
 
-    (when loading-p
-      (lui:request-frame)
-      (lui:spinner))
+    ;; (lui:label (format nil "~a" customers-plist))
 
-    (when (and (null customers-plist) (not loading-p))
-      (setf loading-p t)
-      (api-query-components
-       auth-token #(:customer-p)
-       (lambda (result http-code)
-         (setf loading-p nil)
-         (when (= 200 http-code)
-           (setf customers-plist (or result "<error>"))))))))
+    ;; (when loading-p
+    ;;   (lui:request-frame)
+    ;;   (lui:spinner))
 
-(defun parse (http-result-body)
-  (let ((*read-eval* nil))
-    (handler-case 
-        (read-from-string http-result-body)
-      (parse-error (e)
-        (print e)
-        nil))))
+    ;; (when (and (null customers-plist) (not loading-p))
+    ;;   (setf loading-p t)
+    ;;   (api-query-components
+    ;;    auth-token #(:customer-p)
+    ;;    (lambda (result http-code)
+    ;;      (setf loading-p nil)
+    ;;      (when (= 200 http-code)
+    ;;        (setf customers-plist (or result "<error>"))))))
+    ))
 
-(defparameter *customer* #(:customer-p :name :address
-                           :primary-contact-first-name
-                           :primary-contact-last-name
-                           :primary-contact-email
-                           :primary-contact-phone))
+;; (defparameter *customer* #(:customer-p :name :address
+;;                            :primary-contact-first-name
+;;                            :primary-contact-last-name
+;;                            :primary-contact-email
+;;                            :primary-contact-phone))
 
 
 (defun draw ()
   (execute-result-handlers)
-  (apply (symbol-function (first *current-page*)) (rest *current-page*)))
+  (apply (symbol-function *page*) *page-args*))
 
 (defun main ()
   (start)
-  (redirect 'login)
   (lui:with-palette (lui:+PALETTE-DEFAULT+)
     (lui:with-toolkit (:motif)
       (lui:run #'draw)))
   #-jscl
   (stop)
   (values))
-
-
-
-;; (defun instantiate (auth-token components)
-;;   (fetch "create" (list (cons "auth-token" auth-token))
-;;          (lambda (result code)
-;;            (when (= code 200)
-;;              (let* ((*read-eval* nil)
-;;                     (id (read-from-string result)))
-;;                (fetch "set-components"
-;;                       (list (cons "auth-token" auth-token)
-;;                             (cons "components-plist"
-;;                                   (write-to-string
-;;                                    (append (list :id id)
-;;                                            (loop :for component :across components
-;;                                                  :appending (list component ""))))))
-;;                       (lambda (result code) (declare (ignore result code)))))))))
-
-;; (let ((content ""))
-;;   (defun draw/app ()
-;;     (lui:panel (lui:opt :width (lui:grow)
-;;                            :height (lui:grow)
-;;                            :padding (lui:units 1))
-;;       (lui:label (s-auth-token *s*))
-;;       (when (lui:button "Logout")
-;;         (setf *s* (make-state)))
-
-;;       (when (lui:button "Create Customer")
-;;         (instantiate (s-auth-token *s*) *customer*))
-;;       (when (lui:button "Refresh")
-;;         (fetch "query-components"
-;;                (list (cons "auth-token" (s-auth-token *s*))
-;;                      (cons "components" "#()"))
-;;                (lambda (result code)
-;;                  (declare (ignore code))
-;;                  (setf content result))))
-;;       (lui:label content))))

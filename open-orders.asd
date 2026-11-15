@@ -34,6 +34,7 @@
   :components
   ((:module "modules/client"
     :components ((:file "fetch")
+                 (:file "cache")
                  (:file "api")
                  (:file "main")))))
 

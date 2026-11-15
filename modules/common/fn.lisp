@@ -1,10 +1,19 @@
 (defpackage #:open-orders.common.fn
   (:use #:cl)
   (:export #:fn
-           #:symbolicate))
+           #:symbolicate
+           #:def))
 (in-package #:open-orders.common.fn)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun first-or-self (arg)
+    ;;; The first element of arg, if it is a list; else arg itself.
+    ;; Code from Paradigms of AI Programming, Copyright (c) 1991 Peter Norvig
+    (if (consp arg) (first arg) arg))
+  
+  (defun second-or-nil (arg)
+    (when (consp arg) (second arg)))
+  
   (defun symbolicate (&rest things)
     (intern (string-upcase
              (apply #'concatenate 'string
@@ -130,3 +139,10 @@
                        `(,docstring
                          (the ,return-type (progn ,@body))))
                       (t `((the ,return-type (progn ,@body)))))))))
+
+
+(defmacro def (name-and-type value &optional docstring)
+  (let ((name (first-or-self name-and-type))
+        (type (or (second-or-nil name-and-type) t)))
+    `(progn (declaim (type ,type ,name))
+            (defparameter ,name ,value ,docstring))))
