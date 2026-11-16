@@ -26,7 +26,8 @@
   :author "Robert Burnett"
   :depends-on ("open-orders/common"
                "drakma" "lparallel"
-               "lui" "url-rewrite")
+               "lui" "url-rewrite"
+               "defclass-std")
   :build-operation program-op
   :build-pathname "open-orders-client"
   :entry-point "open-orders.client.main:main"
@@ -34,11 +35,9 @@
   :components
   ((:module "modules/client"
     :components ((:file "fetch")
-                 (:file "cache")
-                 (:file "api")
                  (:file "main")))))
 
 (defsystem "open-orders"
   :author "Robert Burnett"
   :description "Business Order Management System"
-  :depends-on ("open-orders/client" "open-orders/server"))
+  :depends-on ("open-orders/server" "open-orders/client"))

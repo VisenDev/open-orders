@@ -1,8 +1,10 @@
 (uiop:define-package #:open-orders.client.main
   (:use #:cl 
-        #:open-orders.client.cache
         #:open-orders.client.fetch
         #:open-orders.common.fn)
+  (:import-from #:defclass-std
+                #:class/std
+                #:defclass/std)
   (:export
    #:main))
 (in-package #:open-orders.client.main)
@@ -55,10 +57,9 @@
             (lui:label "Password" (lui:opt :padding (lui:units 1)))
             (setf password (lui:text-field (lui:opt :password-p t)))))
 
-        (when (lui:button "login")
+        (when (or (lui:button "login") (lui:key-pressed-p :enter))
           (setf *login-status* :loading)
-          (with-fetch ("login" :username username
-                               :password password)
+          (api-login (:username username :password password)
               (result code)
             (cond ((= code 200)
                    (setf *login-status* :done)
@@ -92,17 +93,33 @@
     ;; content
     (lui:label "Hello from app")))
 
-(defun customers/edit (id)
-  (lui:panel (lui:opt :width (lui:grow)
-                      :height (lui:grow)
-                      :padding (lui:units 1))
-    (let ((customer-plist (cached-fetch "get-components"
-                                        :auth-token *auth-token*
-                                        :id (write-to-string id)))
-          name)
-      
-      (cond ((null customer-plist)
+(defclass/std edit-customer-state ()
+  ((plist)
+   (status :std :waiting
+           :type (member :waiting :loading :error :done))))
+(def (*customers/edit-state* edit-customer-state) (make-instance 'edit-customer-state))
+
+(defun customers/edit (id &aux name)
+  (with-slots (plist status) *customers/edit-state*
+    (case status
+      (:waiting
+       (setf status :loading)
+       (api-get-components (:auth-token *auth-token* :id id)
+           (result code)
+         (cond ((= code 200)
+                (setf status :done)
+                (setf plist result))
+               (t (setf status :error))))))
+    
+    (lui:panel (lui:opt :width (lui:grow)
+                        :height (lui:grow)
+                        :padding (lui:units 1))
+      (cond ((eq status :loading)
              (lui:spinner))
+            ((eq status :error)
+             (lui:label "Fetching failed...")
+             (when (lui:button "Retry?")
+               (setf status :waiting)))
             (t
              (lui:table ()
                (lui:table-row ()
@@ -110,16 +127,17 @@
                  (setf name (lui:text-field)))
                (lui:table-row ()
                  (lui:table-cell ()
-                   (when (lui:button "Save?")
-                     (let ((components (copy-list customer-plist)))
-                       (setf (getf components :name) name)
-                       (fetch* "set-components"
-                               :auth-token *auth-token*
-                               :components (write-to-string components))))))))
+                   ;; (when (lui:button "Save?")
+                   ;;   (let ((components (copy-list customer-plist)))
+                   ;;     (setf (getf components :name) name)
+                   ;;     (fetch* "set-components"
+                   ;;             :auth-token *auth-token*
+                   ;;             :components (write-to-string components))))
+                   ))))
             )
-      )
+      
 
-    ))
+      )))
 
 (defun customers/list ()
   (lui:panel (lui:opt :width (lui:grow)
@@ -130,25 +148,26 @@
 
     (lui:row ()
       (when (lui:button "New Customer")
-        (with-fetch ("create" :auth-token *auth-token*)
-            (id code)
-          (assert (and id (= 200 code)))
-          (fetch* "set" :auth-token *auth-token*
-                        :id id :component ":customer-p" :value "t")
-          (invalidate-cache))))
+        ;; (with-fetch ("create" :auth-token *auth-token*)
+        ;;     (id code)
+        ;;   (assert (and id (= 200 code)))
+        ;;   (fetch* "set" :auth-token *auth-token*
+        ;;                 :id id :component ":customer-p" :value "t")
+        ;;   (invalidate-cache))
+        ))
 
-    (let ((customers (cached-fetch "query-components"
-                                   :auth-token *auth-token*
-                                   :components "#(:customer-p)")))
-      (if customers
-          (lui:panel (lui:opt :scrollbar-p t)
-            (loop :for i :from 0
-                  :for customer :across customers
-                  :when (lui:button (write-to-string (getf customer :name))
-                                    (lui:opt :width (lui:grow)
-                                             :id i))
-                    :do (page-redirect t 'customers/edit (getf customer :id))))
-          (lui:spinner)))
+    ;; (let ((customers (cached-fetch "query-components"
+    ;;                                :auth-token *auth-token*
+    ;;                                :components "#(:customer-p)")))
+    ;;   (if customers
+    ;;       (lui:panel (lui:opt :scrollbar-p t)
+    ;;         (loop :for i :from 0
+    ;;               :for customer :across customers
+    ;;               :when (lui:button (write-to-string (getf customer :name))
+    ;;                                 (lui:opt :width (lui:grow)
+    ;;                                          :id i))
+    ;;                 :do (page-redirect t 'customers/edit (getf customer :id))))
+    ;;       (lui:spinner)))
 
     ;; (lui:label (format nil "~a" customers-plist))
 

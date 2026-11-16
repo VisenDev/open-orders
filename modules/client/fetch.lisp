@@ -1,13 +1,24 @@
-(defpackage #:open-orders.client.fetch
+(uiop:define-package #:open-orders.client.fetch
   (:use #:cl #:open-orders.common.fn)
   (:export
    #:start
    #:stop
    #:fetch
    #:execute-result-handlers
-   #:with-fetch
-   #:encode-parameters
-   #:fetch*))
+   ;; #:with-fetch
+   ;; #:encode-parameters
+   ;; #:fetch*
+   #:api-login
+   #:api-get
+   #:api-set
+   #:api-unset
+   #:api-query
+   #:api-query-ext
+   #:api-query-components
+   #:api-get-components
+   #:api-set-components
+   #:api-create
+   #:api-delete))
 (in-package #:open-orders.client.fetch)
 
 (defvar *server-url* "http://localhost:8888")
@@ -134,21 +145,16 @@
      `(funcall #'fetch ,,endpoint (lambda (,result ,code)
                                     (declare (ignorable ,result ,code))
                                     ,@body)
-               ,args)))
+               ,@args)))
 
-(defapi api-get "/get" (auth-token id component))
-
-;; (defun fetch* (endpoint &rest parameters)
-;;   "fetch except results are discarded"
-;;   (apply #'fetch endpoint
-;;            (lambda (_ __) (declare (ignore _ __)))
-;;            parameters))
-
-;; (defmacro with-fetch ((endpoint &rest parameters)
-;;                       (http-result code)
-;;                       &body body)
-;;   `(fetch ,endpoint
-;;           (lambda (,http-result ,code)
-;;             (declare (ignorable ,http-result ,code))
-;;             ,@body)
-;;           ,@parameters))
+(defapi api-login "login" (username password))
+(defapi api-get "get" (auth-token id component))
+(defapi api-set "set" (auth-token id component value))
+(defapi api-unset "unset" (auth-token id component))
+(defapi api-query "query" (auth-token components))
+(defapi api-query-ext "query-ext" (auth-token components sort-by offset limit))
+(defapi api-query-components "query-components"(auth-token components))
+(defapi api-get-components "get-components" (auth-token id))
+(defapi api-set-components "set-components" (auth-token components-plist))
+(defapi api-create "create" (auth-token))
+(defapi api-delete "delete" (auth-token id))
