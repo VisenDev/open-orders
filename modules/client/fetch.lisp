@@ -5,20 +5,40 @@
    #:stop
    #:fetch
    #:execute-result-handlers
-   ;; #:with-fetch
-   ;; #:encode-parameters
-   ;; #:fetch*
    #:api-login
+   #:api-login-cached
+   #:with-api-login
    #:api-get
+   #:api-get-cached
+   #:with-api-get
    #:api-set
+   #:api-set-cached
+   #:with-api-set
    #:api-unset
+   #:api-unset-cached
+   #:with-api-unset
    #:api-query
+   #:api-query-cached
+   #:with-api-query
    #:api-query-ext
+   #:api-query-ext-cached
+   #:with-api-query-ext
    #:api-query-components
+   #:api-query-components-cached
+   #:with-api-query-components
    #:api-get-components
+   #:api-get-components-cached
+   #:with-api-get-components
    #:api-set-components
+   #:api-set-components-cached
+   #:with-api-set-components
    #:api-create
-   #:api-delete))
+   #:api-create-cached
+   #:with-api-create
+   #:api-delete
+   #:api-delete-cached
+   #:with-api-delete
+   #:clear-cache))
 (in-package #:open-orders.client.fetch)
 
 (defvar *server-url* "http://localhost:8888")
@@ -139,22 +159,50 @@
           (lambda (raw-result code)
             (funcall callback (parse raw-result) code))))
 
-(defmacro defapi (name endpoint (&rest parameters))
-  `(defmacro ,name ((&rest args &key ,@parameters) (result code) &body body)
-     (declare (ignore ,@parameters))
-     `(funcall #'fetch ,,endpoint (lambda (,result ,code)
-                                    (declare (ignorable ,result ,code))
-                                    ,@body)
-               ,@args)))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun first-or-self (object)
+    (if (listp object) (first object) object)))
 
-(defapi api-login "login" (username password))
-(defapi api-get "get" (auth-token id component))
-(defapi api-set "set" (auth-token id component value))
-(defapi api-unset "unset" (auth-token id component))
-(defapi api-query "query" (auth-token components))
-(defapi api-query-ext "query-ext" (auth-token components sort-by offset limit))
-(defapi api-query-components "query-components"(auth-token components))
-(defapi api-get-components "get-components" (auth-token id))
-(defapi api-set-components "set-components" (auth-token components-plist))
-(defapi api-create "create" (auth-token))
-(defapi api-delete "delete" (auth-token id))
+(defparameter *cache* (make-hash-table :test 'equalp))
+
+(defun clear-cache ()
+  (clrhash *cache*))
+
+(defmacro defapi (name endpoint (&rest parameters))
+  (let ((parameter-names (mapcar #'first-or-self parameters)))
+    `(progn
+
+       (fn (,(symbolicate name '-cached) (values t keyword)) ,parameters
+         (let ((entry (gethash (list ,@parameter-names) *cache*)))
+           (unless entry
+             (setf entry (cons :loading nil))
+             (setf (gethash (list ,@parameter-names) *cache*) entry)
+             (,name (lambda (result code)
+                      (setf (gethash (list ,@parameter-names) *cache*)
+                            (cons (if (= code 200) :done :error) result)))
+                    ,@parameter-names))
+           (values (cdr entry) (car entry))))
+       
+       (fn (,name (values)) ((handler (function (t integer) t)) &rest args &key ,@parameters)
+         (apply #'fetch ,endpoint handler args)
+         (values))
+       
+       (defmacro ,(symbolicate 'with- name)
+           ((&key ,@parameter-names) (result code) &body body)
+         ;; (declare (ignore ,@parameters))
+         `(,',name (lambda (,result ,code)
+                     (declare (ignorable ,result ,code))
+                     ,@body)
+                   ,,@parameter-names)))))
+
+(defapi api-login "login" ((username string) (password string)))
+(defapi api-get "get" ((auth-token string) (id integer) (component keyword)))
+(defapi api-set "set" ((auth-token string) (id integer) (component keyword) (value t)))
+(defapi api-unset "unset" ((auth-token string) (id integer) (component keyword)))
+(defapi api-query "query" ((auth-token string) (components (vector keyword))))
+(defapi api-query-ext "query-ext" ((auth-token string) (components (vector keyword)) (sort-by keyword) (offset integer) (limit integer)))
+(defapi api-query-components "query-components"((auth-token string) (components (vector keyword))))
+(defapi api-get-components "get-components" ((auth-token string) (id integer)))
+(defapi api-set-components "set-components" ((auth-token string) (components-plist list)))
+(defapi api-create "create" ((auth-token string)))
+(defapi api-delete "delete" ((auth-token string) (id integer)))

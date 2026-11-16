@@ -57,9 +57,9 @@
             (lui:label "Password" (lui:opt :padding (lui:units 1)))
             (setf password (lui:text-field (lui:opt :password-p t)))))
 
-        (when (or (lui:button "login") (lui:key-pressed-p :enter))
+        (when (or (lui:button "login") (lui:key-pressed-p lui.key:enter))
           (setf *login-status* :loading)
-          (api-login (:username username :password password)
+          (with-api-login (:username username :password password)
               (result code)
             (cond ((= code 200)
                    (setf *login-status* :done)
@@ -104,7 +104,7 @@
     (case status
       (:waiting
        (setf status :loading)
-       (api-get-components (:auth-token *auth-token* :id id)
+       (with-api-get-components (:auth-token *auth-token* :id id)
            (result code)
          (cond ((= code 200)
                 (setf status :done)
@@ -139,51 +139,98 @@
 
       )))
 
-(defun customers/list ()
-  (lui:panel (lui:opt :width (lui:grow)
-                      :height (lui:grow)
-                      :padding (lui:units 1)
-                      :gap (lui:units 1))
-    (draw-toplevel-controls :customers)
+(deftype entity-id () 'integer)
+(fn (entity-table (or entity-id null)) ((component-plists (vector list))
+                                        (components-to-display (vector keyword)))
+  (let ((result nil))
+    (lui:table ()
+      (lui:table-row ()
+        (loop :for component :across components-to-display
+              :do (lui:table-cell ()
+                    (lui:label (symbol-name component)))))
+      (loop :for plist :across component-plists
+            :for i :from 0
+            :do (lui:table-row (lui:opt :id i)
+                  (loop :for component :across components-to-display
+                        :for value = (getf plist component)
+                        :do (lui:table-cell ()
+                              (when (lui:button (write-to-string value)
+                                      (lui:opt :id (list i component)))
+                                (setf result (getf plist :id))
+                                )))))
+      result)))
 
-    (lui:row ()
-      (when (lui:button "New Customer")
-        ;; (with-fetch ("create" :auth-token *auth-token*)
-        ;;     (id code)
-        ;;   (assert (and id (= 200 code)))
-        ;;   (fetch* "set" :auth-token *auth-token*
-        ;;                 :id id :component ":customer-p" :value "t")
-        ;;   (invalidate-cache))
-        ))
+(let ((status :waiting)
+      (customer-plists nil))
+  (defun customers/list ()
+    (lui:panel (lui:opt :width (lui:grow)
+                        :height (lui:grow)
+                        :padding (lui:units 1)
+                        :gap (lui:units 1))
+      (draw-toplevel-controls :customers)
 
-    ;; (let ((customers (cached-fetch "query-components"
-    ;;                                :auth-token *auth-token*
-    ;;                                :components "#(:customer-p)")))
-    ;;   (if customers
-    ;;       (lui:panel (lui:opt :scrollbar-p t)
-    ;;         (loop :for i :from 0
-    ;;               :for customer :across customers
-    ;;               :when (lui:button (write-to-string (getf customer :name))
-    ;;                                 (lui:opt :width (lui:grow)
-    ;;                                          :id i))
-    ;;                 :do (page-redirect t 'customers/edit (getf customer :id))))
-    ;;       (lui:spinner)))
+      (lui:row ()
+        (when (lui:button "New Customer")
+          (with-api-create (:auth-token *auth-token*)
+              (result code)
+            (cond ((= code 200)
+                   (with-api-set-components (:auth-token *auth-token*
+                                        :components-plist (list :name "bob"
+                                                                :id result
+                                                                :customer-p t))
+                       (result code)
+                     (unless (= code 200)
+                       (lui:popup
+                        (format nil "Setting components failed with code ~a: ~a"
+                                code result)))))
+                  (t (lui:popup (format nil "Creating customer failed with code ~a: ~a"
+                                        code result)))))))
 
-    ;; (lui:label (format nil "~a" customers-plist))
+      (when (eq status :waiting)
+        (setf status :loading)
+        (with-api-query-components (:auth-token *auth-token* :components #(:customer-p))
+            (result code)
+          (cond ((= code 200)
+                 (setf customer-plists result)
+                 (setf status :done))
+                (t (setf status :error)
+                   (lui:popup (format nil "Retrieving components failed with code ~a:~a"
+                                      code result))))))
 
-    ;; (when loading-p
-    ;;   (lui:request-frame)
-    ;;   (lui:spinner))
+      (when (eq status :loading)
+        (lui:spinner))
 
-    ;; (when (and (null customers-plist) (not loading-p))
-    ;;   (setf loading-p t)
-    ;;   (api-query-components
-    ;;    auth-token #(:customer-p)
-    ;;    (lambda (result http-code)
-    ;;      (setf loading-p nil)
-    ;;      (when (= 200 http-code)
-    ;;        (setf customers-plist (or result "<error>"))))))
-    ))
+      (when (eq status :done)
+        (entity-table customer-plists #(:customer-p :name)))
+
+      ;; (let ((customers (cached-fetch "query-components"
+      ;;                                :auth-token *auth-token*
+      ;;                                :components "#(:customer-p)")))
+      ;;   (if customers
+      ;;       (lui:panel (lui:opt :scrollbar-p t)
+      ;;         (loop :for i :from 0
+      ;;               :for customer :across customers
+      ;;               :when (lui:button (write-to-string (getf customer :name))
+      ;;                                 (lui:opt :width (lui:grow)
+      ;;                                          :id i))
+      ;;                 :do (page-redirect t 'customers/edit (getf customer :id))))
+      ;;       (lui:spinner)))
+
+      ;; (lui:label (format nil "~a" customers-plist))
+
+      ;; (when loading-p
+      ;;   (lui:request-frame)
+      ;;   (lui:spinner))
+
+      ;; (when (and (null customers-plist) (not loading-p))
+      ;;   (setf loading-p t)
+      ;;   (api-query-components
+      ;;    auth-token #(:customer-p)
+      ;;    (lambda (result http-code)
+      ;;      (setf loading-p nil)
+      ;;      (when (= 200 http-code)
+      ;;        (setf customers-plist (or result "<error>"))))))
+      )))
 
 ;; (defparameter *customer* #(:customer-p :name :address
 ;;                            :primary-contact-first-name
