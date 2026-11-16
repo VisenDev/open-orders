@@ -107,10 +107,8 @@
               (error "Expected a keyword, got ~S." name))
          :collect
          (cons (string-downcase (symbol-name name))
-               (if (stringp value)
-                   (copy-seq value)
-                   (with-standard-io-syntax
-                     (write-to-string value)))))
+               (with-standard-io-syntax
+                     (write-to-string value))))
    #'string< :key #'car))
 
 (fn (parse t) ((http-result (or string null)))
@@ -120,6 +118,8 @@
           (read-from-string http-result)
         (parse-error (e)
           (print e)
+          nil)
+        (end-of-file ()
           nil)))))
 
 (defun fetch (endpoint callback &rest parameters)
@@ -128,17 +128,27 @@
           (lambda (raw-result code)
             (funcall callback (parse raw-result) code))))
 
-(defun fetch* (endpoint &rest parameters)
-  "fetch except results are discarded"
-  (apply #'fetch endpoint
-           (lambda (_ __) (declare (ignore _ __)))
-           parameters))
+(defmacro defapi (name endpoint (&rest parameters))
+  `(defmacro ,name ((&rest args &key ,@parameters) (result code) &body body)
+     (declare (ignore ,@parameters))
+     `(funcall #'fetch ,,endpoint (lambda (,result ,code)
+                                    (declare (ignorable ,result ,code))
+                                    ,@body)
+               ,args)))
 
-(defmacro with-fetch ((endpoint &rest parameters)
-                      (http-result code)
-                      &body body)
-  `(fetch ,endpoint
-          (lambda (,http-result ,code)
-            (declare (ignorable ,http-result ,code))
-            ,@body)
-          ,@parameters))
+(defapi api-get "/get" (auth-token id component))
+
+;; (defun fetch* (endpoint &rest parameters)
+;;   "fetch except results are discarded"
+;;   (apply #'fetch endpoint
+;;            (lambda (_ __) (declare (ignore _ __)))
+;;            parameters))
+
+;; (defmacro with-fetch ((endpoint &rest parameters)
+;;                       (http-result code)
+;;                       &body body)
+;;   `(fetch ,endpoint
+;;           (lambda (,http-result ,code)
+;;             (declare (ignorable ,http-result ,code))
+;;             ,@body)
+;;           ,@parameters))
