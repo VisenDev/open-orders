@@ -163,37 +163,30 @@
   (defun first-or-self (object)
     (if (listp object) (first object) object)))
 
-(defparameter *cache* (make-hash-table :test 'equalp))
-
-(defun clear-cache ()
-  (clrhash *cache*))
-
 (defmacro defapi (name endpoint (&rest parameters))
   (let ((parameter-names (mapcar #'first-or-self parameters)))
     `(progn
 
-       (fn (,(symbolicate name '-cached) (values t keyword)) ,parameters
-         (let ((entry (gethash (list ,@parameter-names) *cache*)))
-           (unless entry
-             (setf entry (cons :loading nil))
-             (setf (gethash (list ,@parameter-names) *cache*) entry)
-             (,name (lambda (result code)
-                      (setf (gethash (list ,@parameter-names) *cache*)
-                            (cons (if (= code 200) :done :error) result)))
-                    ,@parameter-names))
-           (values (cdr entry) (car entry))))
-       
-       (fn (,name (values)) ((handler (function (t integer) t)) &rest args &key ,@parameters)
-         (apply #'fetch ,endpoint handler args)
+       (fn (,name (values))
+           ((handler (function (t integer) t)) &key ,@(mapcar #'list parameters))
+         
+         (fetch ,endpoint handler ,@(mapcan (lambda (name)
+                                              (list (intern (symbol-name name)
+                                                            :keyword)
+                                                    name))
+                                            parameter-names))
          (values))
        
        (defmacro ,(symbolicate 'with- name)
            ((&key ,@parameter-names) (result code) &body body)
-         ;; (declare (ignore ,@parameters))
          `(,',name (lambda (,result ,code)
                      (declare (ignorable ,result ,code))
                      ,@body)
-                   ,,@parameter-names)))))
+                   ,,@(mapcan (lambda (name)
+                                              (list (intern (symbol-name name)
+                                                            :keyword)
+                                                    name))
+                                            parameter-names))))))
 
 (defapi api-login "login" ((username string) (password string)))
 (defapi api-get "get" ((auth-token string) (id integer) (component keyword)))

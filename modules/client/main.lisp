@@ -154,10 +154,10 @@
                   (loop :for component :across components-to-display
                         :for value = (getf plist component)
                         :do (lui:table-cell ()
-                              (when (lui:button (write-to-string value)
-                                      (lui:opt :id (list i component)))
-                                (setf result (getf plist :id))
-                                )))))
+                              (lui:label (write-to-string value)))
+                        :finally (when (lui:button "Edit"
+                                         (lui:opt :id (list i component)))
+                                   (setf result (getf plist :id))))))
       result)))
 
 (let ((status :waiting)
@@ -179,10 +179,11 @@
                                                                 :id result
                                                                 :customer-p t))
                        (result code)
-                     (unless (= code 200)
-                       (lui:popup
-                        (format nil "Setting components failed with code ~a: ~a"
-                                code result)))))
+                     (if (= code 200)
+                         (setf status :waiting)
+                         (lui:popup
+                          (format nil "Setting components failed with code ~a: ~a"
+                                  code result)))))
                   (t (lui:popup (format nil "Creating customer failed with code ~a: ~a"
                                         code result)))))))
 
@@ -197,11 +198,12 @@
                    (lui:popup (format nil "Retrieving components failed with code ~a:~a"
                                       code result))))))
 
-      (when (eq status :loading)
-        (lui:spinner))
-
-      (when (eq status :done)
+      (when (not (null customer-plists))
         (entity-table customer-plists #(:customer-p :name)))
+
+      (when (eq status :loading)
+        (lui:request-frame)
+        (lui:spinner))
 
       ;; (let ((customers (cached-fetch "query-components"
       ;;                                :auth-token *auth-token*
