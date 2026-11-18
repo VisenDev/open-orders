@@ -43,19 +43,19 @@
 (defun login ()
   (let (username
         password)
-    (lui:panel (lui:opt :width (lui:grow)
-                        :height (lui:grow)
-                        :padding (lui:units 1))
+    (lui:panel (:width (lui:grow)
+                 :height (lui:grow)
+                 :padding (lui:units 1))
       (when (eq *login-status* :failed)
         (lui:label "Incorrect username or password."))
-      (lui:panel (lui:opt :padding (lui:units 1))
-        (lui:table (lui:opt :padding (lui:units 1))
+      (lui:panel (:padding (lui:units 1))
+        (lui:table (:padding (lui:units 1))
           (lui:table-row ()
-            (lui:label "Username" (lui:opt :padding (lui:units 1)))
+            (lui:label "Username" :padding (lui:units 1))
             (setf username (lui:text-field)))
           (lui:table-row ()
-            (lui:label "Password" (lui:opt :padding (lui:units 1)))
-            (setf password (lui:text-field (lui:opt :password-p t)))))
+            (lui:label "Password" :padding (lui:units 1))
+            (setf password (lui:text-field))))
 
         (when (or (lui:button "login") (lui:key-pressed-p lui.key:enter))
           (setf *login-status* :loading)
@@ -72,18 +72,18 @@
         (lui:request-frame)))))
 
 (fn draw-toplevel-controls ((selected (member :home :customers)))
-  (lui:row (lui:opt :width (lui:grow))
-      (when (lui:tab "Home" (lui:opt :selected-p (eq selected :home)))
+  (lui:row (:width (lui:grow))
+      (when (lui:tab "Home" :selected-p (eq selected :home))
         (page-redirect nil 'home))
-      (when (lui:tab "Customers" (lui:opt :selected-p (eq selected :customers)))
+      (when (lui:tab "Customers" :selected-p (eq selected :customers))
         (page-redirect nil 'customers/list))
-      (lui:spacer (lui:opt :width (lui:grow)))
+      (lui:spacer :width (lui:grow))
       (when (lui:button "Logout")
         (page-reset)
         (login-reset))))
 
 (defun home ()
-  (lui:panel (lui:opt :width (lui:grow)
+  (lui:panel (:width (lui:grow)
                       :height (lui:grow)
                       :padding (lui:units 1))
     
@@ -111,7 +111,7 @@
                 (setf plist result))
                (t (setf status :error))))))
     
-    (lui:panel (lui:opt :width (lui:grow)
+    (lui:panel (:width (lui:grow)
                         :height (lui:grow)
                         :padding (lui:units 1))
       (cond ((eq status :loading)
@@ -143,27 +143,27 @@
 (fn (entity-table (or entity-id null)) ((component-plists (vector list))
                                         (components-to-display (vector keyword)))
   (let ((result nil))
-    (lui:table ()
-      (lui:table-row ()
-        (loop :for component :across components-to-display
-              :do (lui:table-cell ()
-                    (lui:label (symbol-name component)))))
-      (loop :for plist :across component-plists
-            :for i :from 0
-            :do (lui:table-row (lui:opt :id i)
-                  (loop :for component :across components-to-display
-                        :for value = (getf plist component)
-                        :do (lui:table-cell ()
-                              (lui:label (write-to-string value)))
-                        :finally (when (lui:button "Edit"
-                                         (lui:opt :id (list i component)))
-                                   (setf result (getf plist :id))))))
-      result)))
+    (lui:panel (:scroll-p t :height (lui:grow))
+      (lui:table (:column-gap (lui:units 1) :gap (lui:units 1))
+        (lui:table-row ()
+          (loop :for component :across components-to-display
+                :do (lui:table-cell ()
+                      (lui:label (symbol-name component)))))
+        (loop :for plist :across component-plists
+              :for i :from 0
+              :do (lui:table-row (:id i)
+                    (loop :for component :across components-to-display
+                          :for value = (getf plist component)
+                          :do (lui:table-cell ()
+                                (lui:label (write-to-string value)))
+                          :finally (when (lui:button "Edit" :id (list i component))
+                                     (setf result (getf plist :id))))))
+        result))))
 
 (let ((status :waiting)
       (customer-plists nil))
   (defun customers/list ()
-    (lui:panel (lui:opt :width (lui:grow)
+    (lui:panel (:width (lui:grow)
                         :height (lui:grow)
                         :padding (lui:units 1)
                         :gap (lui:units 1))
@@ -209,11 +209,11 @@
       ;;                                :auth-token *auth-token*
       ;;                                :components "#(:customer-p)")))
       ;;   (if customers
-      ;;       (lui:panel (lui:opt :scrollbar-p t)
+      ;;       (lui:panel (:scrollbar-p t)
       ;;         (loop :for i :from 0
       ;;               :for customer :across customers
       ;;               :when (lui:button (write-to-string (getf customer :name))
-      ;;                                 (lui:opt :width (lui:grow)
+      ;;                                 (:width (lui:grow)
       ;;                                          :id i))
       ;;                 :do (page-redirect t 'customers/edit (getf customer :id))))
       ;;       (lui:spinner)))
