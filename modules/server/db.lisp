@@ -31,7 +31,9 @@
    #:log
    #:user-lookup-auth-token-owner
    #:auth-token->username
-   #:query-ext))
+   #:query-ext
+   #:find-outdated-entities
+   #:pair))
 (in-package #:open-orders.server.db)
 
 (defvar *default-database-path* "open-orders.sqlite3")
@@ -50,7 +52,8 @@
 
   (dolist (sql '("PRAGMA foreign_keys = ON;"
                  "create table if not exists entity(
-                    id integer primary key
+                    id integer primary key,
+                    version integer
                  );"
                  "create table if not exists component(
                     name string not null,
@@ -90,7 +93,6 @@
 
 
 ;;; ==== USER ====
-
 (fn (user-password-correct-p boolean) ((username string) (password string))
   (let ((hash (sqlite:execute-single
                *db* "select hash from user where username = ?;"
@@ -150,9 +152,12 @@
              *db* "insert into entity default values returning id;")))
     (make-entity :id id)))
 
+(define-condition invalid-entity (error) ())
+(define-condition invalid-component (error) ())
+
 (fn (delete (values)) ((entity entity))
   (when (null (entity-id entity))
-    (error 'invalid-entity))
+    (error (make-condition 'invalid-entity)))
   (sqlite:execute-non-query
    *db*
    "delete from entity where id = ?;"
@@ -160,33 +165,55 @@
   (setf (entity-id entity) nil)
   (values))
 
-(define-condition invalid-entity (error) ())
-(define-condition invalid-component (error) ())
+(fn (bump-version (values)) ((entity entity))
+  (when (null (entity-id entity))
+    (error (make-condition 'invalid-entity)))
+  (sqlite:execute-non-query
+   *db* "update entity set version = version + 1 where id = ?;"
+   (entity-id entity))
+  (values))
+
+(deftype pair () '(cons atom atom))
+
+(fn (find-outdated-entities (vector entity)) ((id-version-pairs (vector pair)))
+  (let ((outdated-ids (make-array 0 :adjustable t
+                                    :element-type 'entity
+                                    :fill-pointer 0)))
+    (loop :for (id . version) :across id-version-pairs
+          :when (null (sqlite:execute-single
+                       *db* "select id from entity where id = ? and version = ?;"
+                       id version))
+            :do (vector-push-extend (make-entity :id id) outdated-ids))
+    outdated-ids))
 
 (fn (set (values)) ((entity entity) (component keyword) (value t))
   (when (null (entity-id entity))
     (error (make-condition 'invalid-entity)))
   (when (eq component :id)
     (error (make-condition 'invalid-component)))
-  (sqlite:execute-non-query
-   *db*
-   "insert into component(name, value, entity) values(?, ?, ?)
+  (sqlite:with-transaction *db*
+    (bump-version entity)
+    (sqlite:execute-non-query
+     *db*
+     "insert into component(name, value, entity) values(?, ?, ?)
     on conflict(entity, name) do update set value = excluded.value;"
-   (symbol-name component)
-   (let ((*print-readably* t)
-         (*print-circle* t)
-         (*package* (find-package :keyword)))
-     (write-to-string value))
-   (entity-id entity))
+     (symbol-name component)
+     (let ((*print-readably* t)
+           (*print-circle* t)
+           (*package* (find-package :keyword)))
+       (write-to-string value))
+     (entity-id entity)))
   (values))
 
 (fn (unset (values)) ((entity entity) (component keyword))
   (when (null (entity-id entity))
     (error (make-condition 'invalid-entity)))
-  (sqlite:execute-non-query
-   *db*
-   "delete from component where entity = ? and name = ?;"
-   (entity-id entity) (symbol-name component))
+  (sqlite:with-transaction *db*
+    (bump-version entity)
+    (sqlite:execute-non-query
+     *db*
+     "delete from component where entity = ? and name = ?;"
+     (entity-id entity) (symbol-name component)))
   (values))
 
 (fn (get t) ((entity entity) (component keyword))
@@ -275,11 +302,13 @@
   (let* ((id (getf components :id)))
     (unless id
       (error 'invalid-entity))
-    (sqlite:with-transaction *db*
-      (loop :with entity = (make-entity :id id)
-            :for (key value) :on components :by #'cddr
-            :unless (eq key :id)
-              :do (set entity key value))))
+    (let ((entity (make-entity :id id)))
+      (sqlite:with-transaction *db*
+        (bump-version entity)
+        (loop 
+          :for (key value) :on components :by #'cddr
+          :unless (eq key :id)
+            :do (set entity key value)))))
   (values))
 
 (fn (query-components (vector trivial-types:property-list))
